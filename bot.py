@@ -126,6 +126,15 @@ async def salida(ctx, id_emp: str):
 
     await ctx.send("Salida registrada")
 
+@bot.command()
+async def panel(ctx):
+    await ctx.send(
+        "Panel de registro\n\n"
+        "Entrada:\n"
+        "`!entrada ID actividad`\n\n"
+        "Salida:\n"
+        "`!salida ID`"
+    )
 # =========================
 # BOT ONLINE
 # =========================
