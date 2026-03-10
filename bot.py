@@ -8,10 +8,11 @@ import os
 import json
 
 # ==========================
-# ZONA HORARIA CARACAS
+# ZONAS HORARIAS
 # ==========================
 
-zona = ZoneInfo("America/Caracas")
+utc = ZoneInfo("UTC")
+caracas = ZoneInfo("America/Caracas")
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -65,7 +66,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.now(zona)
+    ahora = datetime.now(utc).astimezone(caracas)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -91,7 +92,7 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = datetime.now(zona)
+            ahora = datetime.now(utc).astimezone(caracas)
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
