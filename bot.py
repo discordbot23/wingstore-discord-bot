@@ -2,9 +2,16 @@ import discord
 from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import json
+
+# ==========================
+# ZONA HORARIA CARACAS
+# ==========================
+
+zona = ZoneInfo("America/Caracas")
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -58,7 +65,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.now() + timedelta(hours=5)
+    ahora = datetime.now(zona)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -84,7 +91,7 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = datetime.now() + timedelta(hours=5)
+            ahora = datetime.now(zona)
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
