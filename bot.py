@@ -2,8 +2,7 @@ import discord
 from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 import os
 import json
 
@@ -38,12 +37,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ==========================
-# ZONA HORARIA (CARACAS)
-# ==========================
-
-zona = ZoneInfo("America/Caracas")
-
-# ==========================
 # OBTENER IDS
 # ==========================
 
@@ -65,7 +58,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.now(zona)
+    ahora = datetime.now() + timedelta(hours=5)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -91,9 +84,7 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            entrada = fila[2]
-
-            ahora = datetime.now(zona)
+            ahora = datetime.now() + timedelta(hours=5)
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
@@ -106,19 +97,9 @@ def registrar_salida(id_emp, usuario):
                 [[usuario]]
             )
 
-            formato = "%H:%M"
+            return True
 
-            hora_entrada = datetime.strptime(entrada, formato)
-            hora_salida = datetime.strptime(salida, formato)
-
-            tiempo = hora_salida - hora_entrada
-
-            horas = tiempo.seconds // 3600
-            minutos = (tiempo.seconds % 3600) // 60
-
-            return entrada, salida, horas, minutos
-
-    return None
+    return False
 
 # ==========================
 # SELECT ENTRADA
@@ -133,7 +114,6 @@ class EntradaSelect(discord.ui.Select):
         opciones = []
 
         for id_emp in ids:
-
             opciones.append(
                 discord.SelectOption(
                     label=id_emp,
@@ -158,12 +138,11 @@ class EntradaSelect(discord.ui.Select):
         )
 
         def check(m):
-            return m.author == interaction.user
+            return m.author == interaction.user and not m.author.bot
 
         msg = await bot.wait_for("message", check=check)
 
         actividad = msg.content
-
         usuario = interaction.user.name
 
         registrar_entrada(id_emp, actividad, usuario)
@@ -183,7 +162,6 @@ class SalidaSelect(discord.ui.Select):
         opciones = []
 
         for id_emp in ids:
-
             opciones.append(
                 discord.SelectOption(
                     label=id_emp,
@@ -201,20 +179,14 @@ class SalidaSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
 
         id_emp = self.values[0]
-
         usuario = interaction.user.name
 
         resultado = registrar_salida(id_emp, usuario)
 
         if resultado:
 
-            entrada, salida, horas, minutos = resultado
-
             await interaction.response.send_message(
-                f"🚪 Salida registrada\n"
-                f"Entrada: {entrada}\n"
-                f"Salida: {salida}\n"
-                f"Tiempo trabajado: {horas}h {minutos}m",
+                f"🚪 Salida registrada para {id_emp}",
                 ephemeral=True
             )
 
@@ -234,7 +206,6 @@ class EntradaMenu(discord.ui.View):
     def __init__(self):
 
         super().__init__(timeout=None)
-
         self.add_item(EntradaSelect())
 
 # ==========================
@@ -246,7 +217,6 @@ class SalidaMenu(discord.ui.View):
     def __init__(self):
 
         super().__init__(timeout=None)
-
         self.add_item(SalidaSelect())
 
 # ==========================
@@ -327,8 +297,4 @@ async def on_ready():
 # RUN BOT
 # ==========================
 
-
 bot.run(os.getenv("TOKEN"))
-
-
-
