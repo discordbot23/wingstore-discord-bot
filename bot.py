@@ -126,15 +126,54 @@ async def salida(ctx, id_emp: str):
 
     await ctx.send("Salida registrada")
 
+# =========================
+# PANEL BONITO CON BOTONES
+# =========================
+
+class PanelView(discord.ui.View):
+
+    @discord.ui.button(label="Registrar Entrada", style=discord.ButtonStyle.success, emoji="🟢")
+    async def entrada_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        await interaction.response.send_message(
+            "Escribe tu registro así:\n\n`!entrada ID actividad`",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Registrar Salida", style=discord.ButtonStyle.danger, emoji="🔴")
+    async def salida_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        await interaction.response.send_message(
+            "Escribe tu registro así:\n\n`!salida ID`",
+            ephemeral=True
+        )
+
+
 @bot.command()
 async def panel(ctx):
-    await ctx.send(
-        "Panel de registro\n\n"
-        "Entrada:\n"
-        "`!entrada ID actividad`\n\n"
-        "Salida:\n"
-        "`!salida ID`"
+
+    embed = discord.Embed(
+        title="📊 Wingstore • Registro de Jornada",
+        description="Selecciona una opción",
+        color=0x5865F2
     )
+
+    embed.add_field(
+        name="🟢 Entrada",
+        value="Registrar inicio de jornada",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔴 Salida",
+        value="Registrar fin de jornada",
+        inline=False
+    )
+
+    embed.set_footer(text="Sistema de registro automatizado")
+
+    await ctx.send(embed=embed, view=PanelView())
+    
 # =========================
 # BOT ONLINE
 # =========================
