@@ -2,21 +2,23 @@ import discord
 from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 import json
 
-# ==========================
-# ZONA HORARIA CARACAS
-# ==========================
+# =========================
+# ZONA HORARIA CORRECTA
+# =========================
 
-def hora_caracas():
-    return datetime.now(ZoneInfo("America/Caracas"))
+CARACAS = ZoneInfo("America/Caracas")
 
-# ==========================
-# GOOGLE SHEETS CONFIG
-# ==========================
+def hora_actual():
+    return datetime.now(CARACAS)
+
+# =========================
+# GOOGLE SHEETS
+# =========================
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -28,45 +30,43 @@ creds = Credentials.from_service_account_info(
     scopes=SCOPES
 )
 
-client_gs = gspread.authorize(creds)
+client = gspread.authorize(creds)
 
-spreadsheet = client_gs.open("Wingstore People Operations Master")
+spreadsheet = client.open("Wingstore People Operations Master")
 
 sheet_registro = spreadsheet.worksheet("Respuestas de formulario 1")
 sheet_empleados = spreadsheet.worksheet("EMPLEADOS Y CONTRATOS")
 
-# ==========================
-# DISCORD CONFIG
-# ==========================
+# =========================
+# DISCORD BOT
+# =========================
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ==========================
+# =========================
 # OBTENER IDS
-# ==========================
+# =========================
 
 def obtener_ids():
-
     data = sheet_empleados.get("A4:A")
-
     ids = []
 
     for fila in data:
         if fila:
             ids.append(fila[0])
 
-    return ids[:25]
+    return ids
 
-# ==========================
+# =========================
 # REGISTRAR ENTRADA
-# ==========================
+# =========================
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = hora_caracas()
+    ahora = datetime.utcnow()  - timedelta(hours=4)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -78,9 +78,9 @@ def registrar_entrada(id_emp, actividad, usuario):
         [[fecha, id_emp, hora, "", actividad, usuario]]
     )
 
-# ==========================
+# =========================
 # REGISTRAR SALIDA
-# ==========================
+# =========================
 
 def registrar_salida(id_emp, usuario):
 
@@ -92,223 +92,50 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = hora_caracas()
-            salida = ahora.strftime("%H:%M")
+            ahora = datetime.utcnow() - timedelta(hours=4)
+            hora = ahora.strftime("%H:%M")
 
             sheet_registro.update(
                 f"D{i+1}",
-                [[salida]]
+                [[hora]]
             )
 
-            sheet_registro.update(
-                f"F{i+1}",
-                [[usuario]]
-            )
+            break
 
-            return True
-
-    return False
-
-# ==========================
-# SELECT ENTRADA
-# ==========================
-
-class EntradaSelect(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        opciones = []
-
-        for id_emp in ids:
-
-            opciones.append(
-                discord.SelectOption(
-                    label=id_emp,
-                    value=id_emp
-                )
-            )
-
-        super().__init__(
-            placeholder="Selecciona tu ID",
-            min_values=1,
-            max_values=1,
-            options=opciones
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        await interaction.response.send_message(
-            "✏️ Escribe tu actividad:",
-            ephemeral=True
-        )
-
-        def check(m):
-            return m.author == interaction.user and not m.author.bot
-
-        msg = await bot.wait_for("message", check=check)
-
-        actividad = msg.content
-
-        usuario = interaction.user.name
-
-        registrar_entrada(id_emp, actividad, usuario)
-
-        await msg.reply("✅ Entrada registrada")
-
-# ==========================
-# SELECT SALIDA
-# ==========================
-
-class SalidaSelect(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        opciones = []
-
-        for id_emp in ids:
-
-            opciones.append(
-                discord.SelectOption(
-                    label=id_emp,
-                    value=id_emp
-                )
-            )
-
-        super().__init__(
-            placeholder="Selecciona tu ID",
-            min_values=1,
-            max_values=1,
-            options=opciones
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        usuario = interaction.user.name
-
-        resultado = registrar_salida(id_emp, usuario)
-
-        if resultado:
-
-            await interaction.response.send_message(
-                f"🚪 Salida registrada para {id_emp}",
-                ephemeral=True
-            )
-
-        else:
-
-            await interaction.response.send_message(
-                "⚠️ No hay entrada abierta",
-                ephemeral=True
-            )
-
-# ==========================
-# MENÚ ENTRADA
-# ==========================
-
-class EntradaMenu(discord.ui.View):
-
-    def __init__(self):
-
-        super().__init__(timeout=None)
-
-        self.add_item(EntradaSelect())
-
-# ==========================
-# MENÚ SALIDA
-# ==========================
-
-class SalidaMenu(discord.ui.View):
-
-    def __init__(self):
-
-        super().__init__(timeout=None)
-
-        self.add_item(SalidaSelect())
-
-# ==========================
-# PANEL PRINCIPAL
-# ==========================
-
-class Panel(discord.ui.View):
-
-    def __init__(self):
-
-        super().__init__(timeout=None)
-
-    @discord.ui.button(
-        label="Registrar Entrada",
-        style=discord.ButtonStyle.success,
-        emoji="🟢"
-    )
-    async def entrada(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-        await interaction.response.send_message(
-            "Selecciona tu ID para registrar **ENTRADA**",
-            view=EntradaMenu(),
-            ephemeral=True
-        )
-
-    @discord.ui.button(
-        label="Registrar Salida",
-        style=discord.ButtonStyle.danger,
-        emoji="🔴"
-    )
-    async def salida(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-        await interaction.response.send_message(
-            "Selecciona tu ID para registrar **SALIDA**",
-            view=SalidaMenu(),
-            ephemeral=True
-        )
-
-# ==========================
-# COMANDO PANEL
-# ==========================
+# =========================
+# COMANDOS
+# =========================
 
 @bot.command()
-async def panel(ctx):
+async def entrada(ctx, id_emp: str, *, actividad: str):
 
-    embed = discord.Embed(
-        title="📊 Wingstore • Registro de Jornada",
-        description="Selecciona una opción",
-        color=0x5865F2
-    )
+    ids_validos = obtener_ids()
 
-    embed.add_field(
-        name="🟢 Entrada",
-        value="Registrar inicio de jornada",
-        inline=False
-    )
+    if id_emp not in ids_validos:
+        await ctx.send("ID no válido")
+        return
 
-    embed.add_field(
-        name="🔴 Salida",
-        value="Registrar fin de jornada",
-        inline=False
-    )
+    registrar_entrada(id_emp, actividad, ctx.author.name)
 
-    embed.set_footer(text="Sistema de registro automatizado")
+    await ctx.send("Entrada registrada")
 
-    await ctx.send(embed=embed, view=Panel())
+@bot.command()
+async def salida(ctx, id_emp: str):
 
-# ==========================
-# BOT READY
-# ==========================
+    registrar_salida(id_emp, ctx.author.name)
+
+    await ctx.send("Salida registrada")
+
+# =========================
+# BOT ONLINE
+# =========================
 
 @bot.event
 async def on_ready():
-
     print(f"Bot conectado como {bot.user}")
 
-# ==========================
-# RUN BOT
-# ==========================
+# =========================
+# RUN
+# =========================
 
 bot.run(os.getenv("DISCORD_TOKEN"))
