@@ -2,17 +2,9 @@ import discord
 from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 import os
 import json
-
-# ==========================
-# ZONAS HORARIAS
-# ==========================
-
-utc = ZoneInfo("UTC")
-caracas = ZoneInfo("America/Caracas")
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -66,7 +58,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.now(utc).astimezone(caracas)
+    ahora = datetime.utcnow() + timedelta(hours=7)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -92,7 +84,7 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = datetime.now(utc).astimezone(caracas)
+            ahora = datetime.utcnow() + timedelta(hours=7)
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
@@ -122,6 +114,7 @@ class EntradaSelect(discord.ui.Select):
         opciones = []
 
         for id_emp in ids:
+
             opciones.append(
                 discord.SelectOption(
                     label=id_emp,
@@ -170,6 +163,7 @@ class SalidaSelect(discord.ui.Select):
         opciones = []
 
         for id_emp in ids:
+
             opciones.append(
                 discord.SelectOption(
                     label=id_emp,
