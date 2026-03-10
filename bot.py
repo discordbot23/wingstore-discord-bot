@@ -8,15 +8,6 @@ import os
 import json
 
 # =========================
-# ZONA HORARIA CORRECTA
-# =========================
-
-CARACAS = ZoneInfo("America/Caracas")
-
-def hora_actual():
-    return datetime.now(CARACAS)
-
-# =========================
 # GOOGLE SHEETS
 # =========================
 
@@ -51,7 +42,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # =========================
 
 def obtener_ids():
+
     data = sheet_empleados.get("A4:A")
+
     ids = []
 
     for fila in data:
@@ -66,7 +59,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.utcnow()  - timedelta(hours=4)
+    ahora = datetime.utcnow() - timedelta(hours=4)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -103,51 +96,100 @@ def registrar_salida(id_emp, usuario):
             break
 
 # =========================
-# COMANDOS
+# SELECT ENTRADA
 # =========================
 
-@bot.command()
-async def entrada(ctx, id_emp: str, *, actividad: str):
+class EntradaSelect(discord.ui.Select):
 
-    ids_validos = obtener_ids()
+    def __init__(self):
 
-    if id_emp not in ids_validos:
-        await ctx.send("ID no válido")
-        return
+        ids = obtener_ids()
 
-    registrar_entrada(id_emp, actividad, ctx.author.name)
+        options = [
+            discord.SelectOption(label=i, value=i)
+            for i in ids[:25]
+        ]
 
-    await ctx.send("Entrada registrada")
+        super().__init__(
+            placeholder="Selecciona tu ID",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
 
-@bot.command()
-async def salida(ctx, id_emp: str):
+    async def callback(self, interaction: discord.Interaction):
 
-    registrar_salida(id_emp, ctx.author.name)
-
-    await ctx.send("Salida registrada")
-
-# =========================
-# PANEL BONITO CON BOTONES
-# =========================
-
-class PanelView(discord.ui.View):
-
-    @discord.ui.button(label="Registrar Entrada", style=discord.ButtonStyle.success, emoji="🟢")
-    async def entrada_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        id_emp = self.values[0]
 
         await interaction.response.send_message(
-            "Escribe tu registro así:\n\n`!entrada ID actividad`",
+            "✏️ Escribe tu actividad:",
             ephemeral=True
         )
 
-    @discord.ui.button(label="Registrar Salida", style=discord.ButtonStyle.danger, emoji="🔴")
-    async def salida_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        def check(m):
+            return m.author == interaction.user
+
+        msg = await bot.wait_for("message", check=check)
+
+        actividad = msg.content
+
+        registrar_entrada(id_emp, actividad, interaction.user.name)
+
+        await msg.reply("✅ Entrada registrada")
+
+# =========================
+# SELECT SALIDA
+# =========================
+
+class SalidaSelect(discord.ui.Select):
+
+    def __init__(self):
+
+        ids = obtener_ids()
+
+        options = [
+            discord.SelectOption(label=i, value=i)
+            for i in ids[:25]
+        ]
+
+        super().__init__(
+            placeholder="Selecciona tu ID",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+
+        id_emp = self.values[0]
+
+        registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            "Escribe tu registro así:\n\n`!salida ID`",
+            "🚪 Salida registrada",
             ephemeral=True
         )
 
+# =========================
+# MENUS
+# =========================
+
+class EntradaMenu(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(EntradaSelect())
+
+
+class SalidaMenu(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(SalidaSelect())
+
+# =========================
+# PANEL PRINCIPAL
+# =========================
 
 @bot.command()
 async def panel(ctx):
@@ -172,8 +214,40 @@ async def panel(ctx):
 
     embed.set_footer(text="Sistema de registro automatizado")
 
-    await ctx.send(embed=embed, view=PanelView())
-    
+    view = discord.ui.View(timeout=None)
+
+    boton_entrada = discord.ui.Button(
+        label="Registrar Entrada",
+        style=discord.ButtonStyle.success
+    )
+
+    boton_salida = discord.ui.Button(
+        label="Registrar Salida",
+        style=discord.ButtonStyle.danger
+    )
+
+    async def entrada_callback(interaction):
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=EntradaMenu(),
+            ephemeral=True
+        )
+
+    async def salida_callback(interaction):
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=SalidaMenu(),
+            ephemeral=True
+        )
+
+    boton_entrada.callback = entrada_callback
+    boton_salida.callback = salida_callback
+
+    view.add_item(boton_entrada)
+    view.add_item(boton_salida)
+
+    await ctx.send(embed=embed, view=view)
+
 # =========================
 # BOT ONLINE
 # =========================
