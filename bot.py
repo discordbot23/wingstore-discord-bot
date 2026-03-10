@@ -3,6 +3,9 @@ from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+from zoneinfo import ZoneInfo
+import os
+import json
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -13,9 +16,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-import json, os
 creds = Credentials.from_service_account_info(
-    json.loads(os.getenv("GOOGLE CREDENTIALS")), scopes=SCOPES
+    json.loads(os.getenv("GOOGLE_CREDENTIALS")),
+    scopes=SCOPES
 )
 
 client_gs = gspread.authorize(creds)
@@ -33,6 +36,12 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# ==========================
+# ZONA HORARIA (CARACAS)
+# ==========================
+
+zona = ZoneInfo("America/Caracas")
 
 # ==========================
 # OBTENER IDS
@@ -56,7 +65,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.now()
+    ahora = datetime.now(zona)
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -82,7 +91,9 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = datetime.now()
+            entrada = fila[2]
+
+            ahora = datetime.now(zona)
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
@@ -95,9 +106,19 @@ def registrar_salida(id_emp, usuario):
                 [[usuario]]
             )
 
-            return True
+            formato = "%H:%M"
 
-    return False
+            hora_entrada = datetime.strptime(entrada, formato)
+            hora_salida = datetime.strptime(salida, formato)
+
+            tiempo = hora_salida - hora_entrada
+
+            horas = tiempo.seconds // 3600
+            minutos = (tiempo.seconds % 3600) // 60
+
+            return entrada, salida, horas, minutos
+
+    return None
 
 # ==========================
 # SELECT ENTRADA
@@ -137,7 +158,7 @@ class EntradaSelect(discord.ui.Select):
         )
 
         def check(m):
-            return m.author == interaction.user and not m.author.bot
+            return m.author == interaction.user
 
         msg = await bot.wait_for("message", check=check)
 
@@ -187,8 +208,13 @@ class SalidaSelect(discord.ui.Select):
 
         if resultado:
 
+            entrada, salida, horas, minutos = resultado
+
             await interaction.response.send_message(
-                f"🚪 Salida registrada para {id_emp}",
+                f"🚪 Salida registrada\n"
+                f"Entrada: {entrada}\n"
+                f"Salida: {salida}\n"
+                f"Tiempo trabajado: {horas}h {minutos}m",
                 ephemeral=True
             )
 
@@ -302,6 +328,7 @@ async def on_ready():
 # ==========================
 
 
-import os
 bot.run(os.getenv("TOKEN"))
+
+
 
