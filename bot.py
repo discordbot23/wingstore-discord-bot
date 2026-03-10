@@ -2,9 +2,17 @@ import discord
 from discord.ext import commands
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import json
+
+# ==========================
+# ZONA HORARIA CARACAS
+# ==========================
+
+UTC = ZoneInfo("UTC")
+CARACAS = ZoneInfo("America/Caracas")
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -37,6 +45,17 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ==========================
+# FUNCION OBTENER HORA CARACAS
+# ==========================
+
+def hora_caracas():
+
+    ahora_utc = datetime.now(UTC)
+    ahora_caracas = ahora_utc.astimezone(CARACAS)
+
+    return ahora_caracas
+
+# ==========================
 # OBTENER IDS
 # ==========================
 
@@ -58,7 +77,7 @@ def obtener_ids():
 
 def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.utcnow() + timedelta(hours=7)
+    ahora = hora_caracas()
 
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
@@ -84,7 +103,7 @@ def registrar_salida(id_emp, usuario):
 
         if fila[1] == id_emp and fila[3] == "":
 
-            ahora = datetime.utcnow() + timedelta(hours=7)
+            ahora = hora_caracas()
             salida = ahora.strftime("%H:%M")
 
             sheet_registro.update(
