@@ -11,8 +11,8 @@ import json
 # ZONA HORARIA CARACAS
 # ==========================
 
-UTC = ZoneInfo("UTC")
-CARACAS = ZoneInfo("America/Caracas")
+def hora_caracas():
+    return datetime.now(ZoneInfo("America/Caracas"))
 
 # ==========================
 # GOOGLE SHEETS CONFIG
@@ -43,15 +43,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# ==========================
-# FUNCION OBTENER HORA CARACAS
-# ==========================
-
-def hora_caracas():
-
-    ahora= datetime.now(CARACAS)
-    return ahora
 
 # ==========================
 # OBTENER IDS
@@ -161,6 +152,7 @@ class EntradaSelect(discord.ui.Select):
         msg = await bot.wait_for("message", check=check)
 
         actividad = msg.content
+
         usuario = interaction.user.name
 
         registrar_entrada(id_emp, actividad, usuario)
@@ -198,6 +190,7 @@ class SalidaSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
 
         id_emp = self.values[0]
+
         usuario = interaction.user.name
 
         resultado = registrar_salida(id_emp, usuario)
@@ -225,6 +218,7 @@ class EntradaMenu(discord.ui.View):
     def __init__(self):
 
         super().__init__(timeout=None)
+
         self.add_item(EntradaSelect())
 
 # ==========================
@@ -236,6 +230,7 @@ class SalidaMenu(discord.ui.View):
     def __init__(self):
 
         super().__init__(timeout=None)
+
         self.add_item(SalidaSelect())
 
 # ==========================
@@ -316,4 +311,4 @@ async def on_ready():
 # RUN BOT
 # ==========================
 
-bot.run(os.getenv("TOKEN"))
+bot.run(os.getenv("MTQ3OTM5NTA1MzUxNTMwOTEwNg.GX-EBF.HNvlsVQYiSGWn0FYkSYTpt8Toc2I99gUlzYeLw"))
