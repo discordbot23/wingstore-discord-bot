@@ -50,10 +50,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def hora_caracas():
 
-    ahora_utc = datetime.now(UTC)
-    ahora_caracas = ahora_utc.astimezone(CARACAS)
-
-    return ahora_caracas
+    ahora= datetime.now(CARACAS)
+    return ahora
 
 # ==========================
 # OBTENER IDS
