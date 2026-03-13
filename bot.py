@@ -191,6 +191,8 @@ class SalidaSelect(discord.ui.Select):
             ephemeral=True
         )
 
+        await interaction.message.delete()
+
 # =========================
 # MENUS
 # =========================
