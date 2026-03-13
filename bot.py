@@ -187,7 +187,7 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            "🚪 Salida registrada",
+            "🚪 Salida registrada correctamente",
             ephemeral=True
         )
 
