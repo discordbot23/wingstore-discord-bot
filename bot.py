@@ -109,9 +109,10 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
         max_length=300
     )
 
-    def __init__(self, id_emp):
+    def __init__(self, id_emp, panel_message):
         super().__init__()
         self.id_emp = id_emp
+        self.panel_message= panel_message
 
     async def on_submit(self, interaction: discord.Interaction):
 
@@ -124,7 +125,7 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
             ephemeral=True
         )
 
-        await interaction.message.delete()
+        await self.panel_message.delete()
         
 # =========================
 # SELECT ENTRADA
@@ -152,7 +153,7 @@ class EntradaSelect(discord.ui.Select):
 
         id_emp = self.values[0]
 
-        modal = ActividadModal(id_emp)
+        modal = ActividadModal(id_emp, interaction.message)
 
         await interaction.response.send_modal(modal)
         
