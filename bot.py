@@ -100,6 +100,7 @@ def registrar_salida(id_emp, usuario):
 # =========================
 class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
 
+
     actividad = discord.ui.TextInput(
         label="Describe tu actividad",
         style=discord.TextStyle.paragraph,
@@ -122,6 +123,9 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
             "✅ Entrada registrada correctamente",
             ephemeral=True
         )
+
+        await interaction.message.delete()
+        
 # =========================
 # SELECT ENTRADA
 # =========================
