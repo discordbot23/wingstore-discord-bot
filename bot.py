@@ -96,6 +96,33 @@ def registrar_salida(id_emp, usuario):
             break
 
 # =========================
+# CLASS MODAL
+# =========================
+class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
+
+    actividad = discord.ui.TextInput(
+        label="Describe tu actividad",
+        style=discord.TextStyle.paragraph,
+        placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
+        required=True,
+        max_length=300
+    )
+
+    def __init__(self, id_emp):
+        super().__init__()
+        self.id_emp = id_emp
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        actividad = self.actividad.value
+
+        registrar_entrada(self.id_emp, actividad, interaction.user.name)
+
+        await interaction.response.send_message(
+            "✅ Entrada registrada correctamente",
+            ephemeral=True
+        )
+# =========================
 # SELECT ENTRADA
 # =========================
 
@@ -121,31 +148,10 @@ class EntradaSelect(discord.ui.Select):
 
         id_emp = self.values[0]
 
-        await interaction.response.send_message(
-            "✏️ Escribe tu actividad:",
-            ephemeral=True
-        )
+        modal = ActividadModal(id_emp)
 
-        def check(m):
-            return m.author == interaction.user
-
-        msg = await bot.wait_for("message", check=check)
-
-        actividad = msg.content
-
-        registrar_entrada(id_emp, actividad, interaction.user.name)
-
-        try:
-            await msg.delete()
-        except:
-            pass
+        await interaction.response.send_modal(modal)
         
-
-
-        await interaction.followup.send(
-            "Entrada Registrada correctamente",
-            ephemeral=True
-        )
 
 # =========================
 # SELECT SALIDA
