@@ -134,8 +134,11 @@ class EntradaSelect(discord.ui.Select):
         actividad = msg.content
 
         registrar_entrada(id_emp, actividad, interaction.user.name)
-
+try:
         await msg.delete()
+except:
+        pass
+
 
         await interaction.followup.send(
             "Entrada Registrada correctamente",
