@@ -210,6 +210,8 @@ class SalidaMenu(discord.ui.View):
 @bot.command()
 async def panel(ctx):
 
+    await ctx.message.delete()
+
     embed = discord.Embed(
         title="📊 WingsStore • Registro de Jornada",
         description="Selecciona una opción",
