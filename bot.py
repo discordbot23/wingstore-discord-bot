@@ -190,9 +190,9 @@ class SalidaSelect(discord.ui.Select):
             "🚪 Salida registrada",
             ephemeral=True
         )
+        
         await interaction.message.delete()
 
-        await interaction.message.delete()
 
 # =========================
 # MENUS
