@@ -135,7 +135,12 @@ class EntradaSelect(discord.ui.Select):
 
         registrar_entrada(id_emp, actividad, interaction.user.name)
 
-        await msg.reply("✅ Entrada registrada")
+        await msg.delete()
+
+        await interaction.followup.send(
+            "Entrada Registrada correctamente",
+            ephemeral=True
+        )
 
 # =========================
 # SELECT SALIDA
