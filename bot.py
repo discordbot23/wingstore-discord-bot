@@ -122,7 +122,7 @@ class EntradaSelect(discord.ui.Select):
         id_emp = self.values[0]
 
         await interaction.response.send_message(
-            "✏️ Escribe tu actividad de hoy:",
+            "✏️ Escribe tu actividad:",
             ephemeral=True
         )
 
