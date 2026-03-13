@@ -195,7 +195,7 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title="📊 Wingstore • Registro de Jornada",
+        title="📊 WingsStore • Registro de Jornada",
         description="Selecciona una opción",
         color=0x5865F2
     )
