@@ -297,35 +297,77 @@ async def panel(ctx):
 
     view = discord.ui.View(timeout=None)
 
-    boton_entrada = discord.ui.Button(
-        label="Registrar Entrada",
+    boton_entrada_1 = discord.ui.Button(
+        label="Entrada WS-001 a WS-027",
         style=discord.ButtonStyle.success
     )
 
-    boton_salida = discord.ui.Button(
-        label="Registrar Salida",
+    boton_entrada_2 = discord.ui.Button(
+        label="Entrada WS-028 a WS-050",
+        style=discord.ButtonStyle.success
+    )
+
+    boton_salida_1 = discord.ui.Button(
+        label="Salida WS-001 a WS-027",
         style=discord.ButtonStyle.danger
     )
 
-    async def entrada_callback(interaction):
+    boton_salida_2 = discord.ui.Button(
+        label="Salida WS-028 a WS-050",
+        style=discord.ButtonStyle.danger
+    )
+
+    async def entrada1_callback(interaction):
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect())
+
         await interaction.response.send_message(
             "Selecciona tu ID",
-            view=EntradaMenu(),
+            view=view_menu,
             ephemeral=True
         )
 
-    async def salida_callback(interaction):
+    async def entrada2_callback(interaction):
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect2())
+
         await interaction.response.send_message(
             "Selecciona tu ID",
-            view=SalidaMenu(),
+            view=view_menu,
             ephemeral=True
         )
 
-    boton_entrada.callback = entrada_callback
-    boton_salida.callback = salida_callback
+    async def salida1_callback(interaction):
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect())
 
-    view.add_item(boton_entrada)
-    view.add_item(boton_salida)
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
+
+    async def salida2_callback(interaction):
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect2())
+
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
+
+    boton_entrada_1.callback = entrada1_callback
+    boton_entrada_2.callback = entrada2_callback
+
+    boton_salida_1.callback = salida1_callback
+    boton_salida_2.callback = salida2_callback
+
+    view.add_item(boton_entrada_1)
+    view.add_item(boton_entrada_2)
+
+    view.add_item(boton_salida_1)
+    view.add_item(boton_salida_2)
 
     await ctx.send(embed=embed, view=view)
 
