@@ -153,7 +153,7 @@ class EntradaSelect(discord.ui.Select):
 
         id_emp = self.values[0]
 
-        modal = ActividadModal(id_emp)
+        modal = ActividadModal(id_emp, interaction.message)
 
         await interaction.response.send_modal(modal)
 
