@@ -143,7 +143,33 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID",
+            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+
+        id_emp = self.values[0]
+
+        modal = ActividadModal(id_emp)
+
+        await interaction.response.send_modal(modal)
+
+class EntradaSelect2(discord.ui.Select):
+
+    def __init__(self):
+
+        ids = obtener_ids()
+
+        options = [
+            discord.SelectOption(label=i, value=i)
+            for i in ids[26:50]
+        ]
+
+        super().__init__(
+            placeholder="Selecciona tu ID (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -174,7 +200,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID",
+            placeholder="Selecciona tu ID (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -187,13 +213,41 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            "🚪 Salida registrada",
+            " ✅ Salida registrada",
             ephemeral=True
         )
         
         await interaction.message.delete()
 
 
+class SalidaSelect2(discord.ui.Select):
+
+    def __init__(self):
+
+        ids = obtener_ids()
+
+        options = [
+            discord.SelectOption(label=i, value=i)
+            for i in ids[26:50]
+        ]
+
+        super().__init__(
+            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+
+        id_emp = self.values[0]
+
+        registrar_salida(id_emp, interaction.user.name)
+
+        await interaction.response.send_message(
+            " ✅ Salida registrada",
+            ephemeral=True
+        )
 # =========================
 # MENUS
 # =========================
@@ -203,13 +257,14 @@ class EntradaMenu(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(EntradaSelect())
-
+        self.add_item(EntradaSelect2())
 
 class SalidaMenu(discord.ui.View):
 
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(SalidaSelect())
+        self.add_item(SalidaSelect2())
 
 # =========================
 # PANEL PRINCIPAL
