@@ -273,8 +273,6 @@ class SalidaMenu(discord.ui.View):
 @bot.command()
 async def panel(ctx):
 
-    await ctx.message.delete()
-
     embed = discord.Embed(
         title="📊 WingsStore • Registro de Jornada",
         description="Selecciona una opción",
@@ -297,6 +295,10 @@ async def panel(ctx):
 
     view = discord.ui.View(timeout=None)
 
+    # =========================
+    # BOTONES
+    # =========================
+
     boton_entrada_1 = discord.ui.Button(
         label="Entrada WS-001 a WS-027",
         style=discord.ButtonStyle.success
@@ -317,7 +319,12 @@ async def panel(ctx):
         style=discord.ButtonStyle.danger
     )
 
+    # =========================
+    # CALLBACKS ENTRADA
+    # =========================
+
     async def entrada1_callback(interaction):
+
         view_menu = discord.ui.View(timeout=None)
         view_menu.add_item(EntradaSelect())
 
@@ -328,6 +335,7 @@ async def panel(ctx):
         )
 
     async def entrada2_callback(interaction):
+
         view_menu = discord.ui.View(timeout=None)
         view_menu.add_item(EntradaSelect2())
 
@@ -337,7 +345,12 @@ async def panel(ctx):
             ephemeral=True
         )
 
+    # =========================
+    # CALLBACKS SALIDA
+    # =========================
+
     async def salida1_callback(interaction):
+
         view_menu = discord.ui.View(timeout=None)
         view_menu.add_item(SalidaSelect())
 
@@ -348,6 +361,7 @@ async def panel(ctx):
         )
 
     async def salida2_callback(interaction):
+
         view_menu = discord.ui.View(timeout=None)
         view_menu.add_item(SalidaSelect2())
 
@@ -357,17 +371,29 @@ async def panel(ctx):
             ephemeral=True
         )
 
+    # =========================
+    # ASIGNAR CALLBACKS
+    # =========================
+
     boton_entrada_1.callback = entrada1_callback
     boton_entrada_2.callback = entrada2_callback
 
     boton_salida_1.callback = salida1_callback
     boton_salida_2.callback = salida2_callback
 
+    # =========================
+    # AGREGAR BOTONES
+    # =========================
+
     view.add_item(boton_entrada_1)
     view.add_item(boton_entrada_2)
 
     view.add_item(boton_salida_1)
     view.add_item(boton_salida_2)
+
+    # =========================
+    # ENVIAR PANEL
+    # =========================
 
     await ctx.send(embed=embed, view=view)
 
