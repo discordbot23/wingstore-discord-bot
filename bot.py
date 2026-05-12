@@ -165,7 +165,7 @@ class EntradaSelect2(discord.ui.Select):
 
         options = [
             discord.SelectOption(label=i, value=i)
-            for i in ids[26:50]
+            for i in ids[25:50]
         ]
 
         super().__init__(
@@ -228,7 +228,7 @@ class SalidaSelect2(discord.ui.Select):
 
         options = [
             discord.SelectOption(label=i, value=i)
-            for i in ids[26:50]
+            for i in ids[25:50]
         ]
 
         super().__init__(
