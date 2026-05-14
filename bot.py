@@ -98,7 +98,7 @@ def registrar_salida(id_emp, usuario):
 # =========================
 # CLASS MODAL
 # =========================
-class ActividadModal(discord.ui.Modal, title="Registrar Actividad"):
+class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
 
 
     actividad = discord.ui.TextInput(
@@ -274,20 +274,30 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title="📊 WingsStore • Registro de Jornada",
+        title="📊 WingsStore • Registro de Jornada • Human Resources Dept.📊 ",
         description="Selecciona una opción",
         color=0x5865F2
     )
 
     embed.add_field(
-        name="🟢 Entrada",
-        value="Registrar inicio de jornada",
+    name="¡🎈🎉 FELIZ CUMPLEAÑOS 🎉🎈!",
+    value=(
+        "🎈El pasado 7 de mayo celebramos el cumpleaños de **Renny Ramírez**.🎁\n\n"
+        "🎂Y el día de hoy 14 de mayo celebramos el cumpleaños de **Adilene Escalona**🎈.\n\n"
+        "Todo el equipo de WingsStore les desea un excelente día, mucho éxito y salud para ambos.🚀"
+    ),
+    inline=False
+)
+
+    embed.add_field(
+        name="🟢 Entrada 🟢",
+        value="Registre el inicio de jornada con su respectivo ID de Empleado ",
         inline=False
     )
 
     embed.add_field(
-        name="🔴 Salida",
-        value="Registrar fin de jornada",
+        name="🔴 Salida 🔴",
+        value="Registre el fin de su jornada con su respectivo ID de Empleado",
         inline=False
     )
 
