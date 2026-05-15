@@ -279,15 +279,6 @@ async def panel(ctx):
         color=0x5865F2
     )
 
-    embed.add_field(
-    name="¡🎈🎉 FELIZ CUMPLEAÑOS 🎉🎈!",
-    value=(
-        "🎈El pasado 7 de mayo celebramos el cumpleaños de **Renny Ramírez**.🎁\n\n"
-        "🎂Y el día de hoy 14 de mayo celebramos el cumpleaños de **Adianez Escalona**🎈.\n\n"
-        "Todo el equipo de WingsStore les desea un excelente día, mucho éxito y salud para ambos.🚀"
-    ),
-    inline=False
-)
 
     embed.add_field(
         name="🟢 Entrada 🟢",
