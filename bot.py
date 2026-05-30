@@ -279,22 +279,6 @@ async def panel(ctx):
         color=0x5865F2
     )
 
-    embed.add_field(
-    name="🚨 Antivirus Corporativo URGENTE 🚨\n",
-    value=(
-        "\n⚠️ Instalación estrictamente obligatoria por indicaciones de Dirección.⚠️\n\n"
-        "Revise su correo corporativo para instalar el antivirus obligatorio.\n\n"
-        "Una vez instalado y activo, deberá enviar confirmación al Departamento de Recursos Humanos.\n\n"
-    ),
-    inline=False
-    )
-
-    embed.add_field(
-        name="_______________",
-        value=" ",
-        inline=False
-    )
-
 
     embed.add_field(
         name="🟢 Entrada 🟢",
