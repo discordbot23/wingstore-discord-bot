@@ -279,6 +279,12 @@ async def panel(ctx):
         color=0x5865F2
     )
 
+    embed = discord.Embed(
+        title=" 🚨 AVISO URGENTE - HUMAN RESOURCES 🚨 ",
+        description=" SE INVITA A TODO EL PERSONAL A LLENAR EL FORMULARIO DE IDENTIFICACIÓN QUE SOLICITA EL DEPARTAMENTO POR MEDIO DE WHATSAPP Y EVITAR UNA NEGATIVA ",
+        color=0x5865F2
+    )
+
 
     embed.add_field(
         name="🟢 Entrada 🟢",
