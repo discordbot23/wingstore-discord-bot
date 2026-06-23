@@ -279,6 +279,12 @@ async def panel(ctx):
         color=0x5865F2
     )
 
+    embed = discord.Embed(
+        title=" 🚨 AVISO URGENTE - HUMAN RESOURCES 🚨 ",
+        description=" SE INVITA AL PERSONAL A REACCIONAR PARA SER TOMADO EN CUENTA EN LA DINAMICA DE MUNDIAL",
+        color=0x5865F2
+    )
+
 
     embed.add_field(
         name="🟢 Entrada 🟢",
