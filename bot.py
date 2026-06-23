@@ -280,13 +280,13 @@ async def panel(ctx):
     )
 
     embed.add_field(
-        name="🟢 Entrada 🟢",
+        name="🟢 Entrada",
         value="Registre el inicio de jornada con su respectivo ID de Empleado ",
         inline=False
     )
 
     embed.add_field(
-        name="🔴 Salida 🔴",
+        name="🔴 Salida",
         value="Registre el fin de su jornada con su respectivo ID de Empleado",
         inline=False
     )
