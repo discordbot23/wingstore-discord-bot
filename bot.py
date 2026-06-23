@@ -274,24 +274,25 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
+        title=" WingsStore • Registro de Jornada • Human Resources Dept. ",
         description="Selecciona una opción",
         color=0x5865F2
     )
 
+
     embed.add_field(
-        name="🟢 Entrada",
+        name="🟢 Entrada 🟢",
         value="Registre el inicio de jornada con su respectivo ID de Empleado ",
         inline=False
     )
 
     embed.add_field(
-        name="🔴 Salida.",
+        name="🔴 Salida 🔴",
         value="Registre el fin de su jornada con su respectivo ID de Empleado",
         inline=False
     )
 
-    embed.set_footer(text="Sistema Automatizado y controlado por HR|Dept.")
+    embed.set_footer(text="Sistema de registro automatizado y controlado por HR|Dept.")
 
     view = discord.ui.View(timeout=None)
 
