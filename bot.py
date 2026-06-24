@@ -64,7 +64,7 @@ def registrar_entrada(id_emp, actividad, usuario):
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
 
-    fila = len(sheet_registro.get_all_values()) + 1
+    fila = len(sheet_registro.col_values(1)) + 1
 
     sheet_registro.update(
         f"A{fila}:F{fila}",
@@ -77,11 +77,15 @@ def registrar_entrada(id_emp, actividad, usuario):
 
 def registrar_salida(id_emp, usuario):
 
-    registros = sheet_registro.get_all_values()
+    total_filas = len(sheet_registro.col_values(1))
+    inicio = max(total_filas - 150, 2)
 
-    for i in range(len(registros)-1, 0, -1):
+    registros = sheet_registro.get(f"A{inicio}:D{total_filas}")
 
-        fila = registros[i]
+    for index, fila in reversed(list(enumerate(registros, start=inicio))):
+
+        while len(fila) < 4:
+            fila.append("")
 
         if fila[1] == id_emp and fila[3] == "":
 
@@ -89,11 +93,13 @@ def registrar_salida(id_emp, usuario):
             hora = ahora.strftime("%H:%M")
 
             sheet_registro.update(
-                f"D{i+1}",
+                f"D{index}",
                 [[hora]]
             )
 
-            break
+            return True
+
+    return False
 
 # =========================
 # CLASS MODAL
@@ -325,29 +331,25 @@ async def panel(ctx):
 
     async def entrada1_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(EntradaSelect())
-
-    await interaction.followup.send(
-        "Selecciona tu ID",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     async def entrada2_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect2())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(EntradaSelect2())
-
-    await interaction.followup.send(
-        "Selecciona tu ID",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     # =========================
     # CALLBACKS SALIDA
@@ -355,29 +357,25 @@ async def panel(ctx):
 
     async def salida1_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(SalidaSelect())
-
-    await interaction.followup.send(
-        "Selecciona tu ID",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     async def salida2_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect2())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(SalidaSelect2())
-
-    await interaction.followup.send(
-        "Selecciona tu ID",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     # =========================
     # ASIGNAR CALLBACKS
