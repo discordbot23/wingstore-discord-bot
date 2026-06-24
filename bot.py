@@ -27,6 +27,18 @@ spreadsheet = client.open("Wingstore People Operations Master")
 
 sheet_registro = spreadsheet.worksheet("Respuestas de formulario 1")
 sheet_empleados = spreadsheet.worksheet("EMPLEADOS Y CONTRATOS")
+IDS_CACHE = []
+
+def cargar_ids():
+    global IDS_CACHE
+
+    data = sheet_empleados.get("A4:A")
+
+    IDS_CACHE = [
+        fila[0]
+        for fila in data
+        if fila
+    ]
 
 # =========================
 # DISCORD BOT
@@ -42,16 +54,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # =========================
 
 def obtener_ids():
+    return IDS_CACHE
 
-    data = sheet_empleados.get("A4:A")
-
-    ids = []
-
-    for fila in data:
-        if fila:
-            ids.append(fila[0])
-
-    return ids
 
 # =========================
 # REGISTRAR ENTRADA
@@ -409,6 +413,9 @@ async def panel(ctx):
 
 @bot.event
 async def on_ready():
+    
+    cargar_ids()
+
     print(f"Bot conectado como {bot.user}")
 
 # =========================
