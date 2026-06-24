@@ -325,25 +325,29 @@ async def panel(ctx):
 
     async def entrada1_callback(interaction):
 
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(EntradaSelect())
+    await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
+    view_menu = discord.ui.View(timeout=None)
+    view_menu.add_item(EntradaSelect())
+
+    await interaction.followup.send(
+        "Selecciona tu ID",
+        view=view_menu,
+        ephemeral=True
+    )
 
     async def entrada2_callback(interaction):
 
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(EntradaSelect2())
+    await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
+    view_menu = discord.ui.View(timeout=None)
+    view_menu.add_item(EntradaSelect2())
+
+    await interaction.followup.send(
+        "Selecciona tu ID",
+        view=view_menu,
+        ephemeral=True
+    )
 
     # =========================
     # CALLBACKS SALIDA
@@ -351,25 +355,29 @@ async def panel(ctx):
 
     async def salida1_callback(interaction):
 
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(SalidaSelect())
+    await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
+    view_menu = discord.ui.View(timeout=None)
+    view_menu.add_item(SalidaSelect())
+
+    await interaction.followup.send(
+        "Selecciona tu ID",
+        view=view_menu,
+        ephemeral=True
+    )
 
     async def salida2_callback(interaction):
 
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(SalidaSelect2())
+    await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
+    view_menu = discord.ui.View(timeout=None)
+    view_menu.add_item(SalidaSelect2())
+
+    await interaction.followup.send(
+        "Selecciona tu ID",
+        view=view_menu,
+        ephemeral=True
+    )
 
     # =========================
     # ASIGNAR CALLBACKS
