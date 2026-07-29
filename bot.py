@@ -108,11 +108,11 @@ def registrar_salida(id_emp, usuario):
 # =========================
 # CLASS MODAL
 # =========================
-class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
+class ActividadModal(discord.ui.Modal, title="Registra tu Actividad del día de hoy"):
 
 
     actividad = discord.ui.TextInput(
-        label="Describe tu actividad",
+        label="Describe tu actividad a realizar el dia de hoy",
         style=discord.TextStyle.paragraph,
         placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
         required=True,
@@ -131,7 +131,7 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
         registrar_entrada(self.id_emp, actividad, interaction.user.name)
 
         await interaction.response.send_message(
-            "✅ Entrada registrada correctamente",
+            "✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu entrada correctamente. Gracias por estar aqui, ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
             ephemeral=True
         )
 
@@ -210,7 +210,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            placeholder="Selecciona tu ID UNICO para continuar (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -223,7 +223,7 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            "✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu salida correctamente. Gracias por acompañarnos y ayudarme el día de hoy. ¡Que tengas un excelente descanso!",
             ephemeral=True
         )
         
@@ -242,7 +242,7 @@ class SalidaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            placeholder="Selecciona tu ID UNICO para continuar (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -255,7 +255,7 @@ class SalidaSelect2(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            " ✅ Su salida ha sido registrada correctamente.\n\nGracias por su compromiso y por formar parte de Wings Store. Le deseamos un excelente resto del día.",
             ephemeral=True
         )
 # =========================
@@ -284,24 +284,31 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
-        description="Selecciona una opción",
+        title=" Registro de Jornada de Wings Store - Powered by Human Resources ",
+        description="Selecciona una opción a continuación",
         color=0x5865F2
     )
 
+    #ANUNCIO
     embed.add_field(
-        name="🟢 Entrada 🟢",
-        value="Registre el inicio de jornada con su respectivo ID de Empleado ",
+        name="AVISO - CONFIRMACIÓN DE CLAUSULA POR EL CORREO CORPORATIVO",
+        value="¡Hola! Soy el tio Max, Me apoyarías confirmando de recibido la clausula que recibirás en tu correo corporativo?\n\nTu confirmación nos ayudará a mantener todo en orden. ¡Muchas Gracias! ",
         inline=False
     )
 
     embed.add_field(
-        name="🔴 Salida 🔴",
-        value="Registre el fin de su jornada con su respectivo ID de Empleado",
+        name="🟢 Registra tu Entrada a Wings Store 🟢",
+        value="Registre el inicio de su prestación de servicios con su respectivo ID UNICO de Empleado ",
         inline=False
     )
 
-    embed.set_footer(text="Sistema Automatizado y controlado por HR|Dept.")
+    embed.add_field(
+        name="🔴 Registra tu Salida de Wings Store 🔴",
+        value="Registre el fin de su prestación de servicios con su respectivo ID UNICO de Empleado",
+        inline=False
+    )
+
+    embed.set_footer(text="Sistema Automatizado y Controlado por Human Resources")
 
     view = discord.ui.View(timeout=None)
 
@@ -310,22 +317,22 @@ async def panel(ctx):
     # =========================
 
     boton_entrada_1 = discord.ui.Button(
-        label="Entrada WS-001 a WS-027",
+        label="Entrada de ID WS-001 a WS-027",
         style=discord.ButtonStyle.success
     )
 
     boton_entrada_2 = discord.ui.Button(
-        label="Entrada WS-028 a WS-050",
+        label="Entrada de ID WS-028 a WS-050",
         style=discord.ButtonStyle.success
     )
 
     boton_salida_1 = discord.ui.Button(
-        label="Salida WS-001 a WS-027",
+        label="Salida de ID WS-001 a WS-027",
         style=discord.ButtonStyle.danger
     )
 
     boton_salida_2 = discord.ui.Button(
-        label="Salida WS-028 a WS-050",
+        label="Salida de ID WS-028 a WS-050",
         style=discord.ButtonStyle.danger
     )
 
@@ -339,7 +346,7 @@ async def panel(ctx):
         view_menu.add_item(EntradaSelect())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Selecciona tu ID UNICO para continuar",
             view=view_menu,
             ephemeral=True
         )
@@ -365,7 +372,7 @@ async def panel(ctx):
         view_menu.add_item(SalidaSelect())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Selecciona tu ID UNICO para continuar",
             view=view_menu,
             ephemeral=True
         )
@@ -376,7 +383,7 @@ async def panel(ctx):
         view_menu.add_item(SalidaSelect2())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Selecciona tu ID UNICO para continuar",
             view=view_menu,
             ephemeral=True
         )
