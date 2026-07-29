@@ -104,11 +104,11 @@ def registrar_salida(id_emp, usuario):
 # =========================
 # CLASS MODAL
 # =========================
-class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
+class ActividadModal(discord.ui.Modal, title="REGISTRE LA ACTIVIDAD A REALIZAR EL DIA DE HOY"):
 
 
     actividad = discord.ui.TextInput(
-        label="Describe tu actividad",
+        label="Describa su actividad a realizar",
         style=discord.TextStyle.paragraph,
         placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
         required=True,
@@ -127,7 +127,7 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
         registrar_entrada(self.id_emp, actividad, interaction.user.name)
 
         await interaction.response.send_message(
-            "✅ Entrada registrada correctamente",
+            "✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu entrada correctamente. ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
             ephemeral=True
         )
 
@@ -149,7 +149,7 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -175,7 +175,7 @@ class EntradaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -206,7 +206,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -219,7 +219,7 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            " ✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
             ephemeral=True
         )
         
@@ -238,7 +238,7 @@ class SalidaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -251,7 +251,7 @@ class SalidaSelect2(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            " ✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
             ephemeral=True
         )
 # =========================
@@ -280,7 +280,7 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
+        title=" REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE ",
         description="Selecciona una opción",
         color=0x5865F2
     )
@@ -297,7 +297,7 @@ async def panel(ctx):
         inline=False
     )
 
-    embed.set_footer(text="Sistema Automatizado y controlado por HR|Dept.")
+    embed.set_footer(text="Sistema Automatizado, Controlado y Monitoreado por Human Resources Wings Store")
 
     view = discord.ui.View(timeout=None)
 
@@ -335,7 +335,7 @@ async def panel(ctx):
         view_menu.add_item(EntradaSelect())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID UNICO",
             view=view_menu,
             ephemeral=True
         )
@@ -346,7 +346,7 @@ async def panel(ctx):
         view_menu.add_item(EntradaSelect2())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID UNICO",
             view=view_menu,
             ephemeral=True
         )
