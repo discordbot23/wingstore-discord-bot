@@ -104,11 +104,11 @@ def registrar_salida(id_emp, usuario):
 # =========================
 # CLASS MODAL
 # =========================
-class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
+class ActividadModal(discord.ui.Modal, title="REGISTRE LA ACTIVIDAD DE HOY"):
 
 
     actividad = discord.ui.TextInput(
-        label="Describe tu actividad",
+        label="Describe la actividad a realizar el dia de hoy",
         style=discord.TextStyle.paragraph,
         placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
         required=True,
@@ -127,7 +127,7 @@ class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
         registrar_entrada(self.id_emp, actividad, interaction.user.name)
 
         await interaction.response.send_message(
-            "✅ Entrada registrada correctamente",
+            "✅🪽 ¡Hola! Soy el Tío Max y ya registré su entrada correctamente. ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
             ephemeral=True
         )
 
@@ -149,7 +149,7 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -175,7 +175,7 @@ class EntradaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -206,7 +206,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
+            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -219,7 +219,7 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            " ✅🪽 ¡Hola! Soy el Tío Max. y ya registré su salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
             ephemeral=True
         )
         
@@ -238,7 +238,7 @@ class SalidaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
+            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -251,7 +251,7 @@ class SalidaSelect2(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅ Salida registrada",
+            " ✅🪽 ¡Hola! Soy el Tío Max. y ya registré su salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
             ephemeral=True
         )
 # =========================
@@ -280,20 +280,28 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
-        description="Selecciona una opción",
+        title=" REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE ",
+        description="🔴AVISO - CONFIRMACIÓN DE CLAUSULA POR CORREO CORPORATIVO🔴",
         color=0x5865F2
     )
 
     embed.add_field(
+        name="¡Hola! Soy el Tio Max",
+        value="En unos momentos recibirás una cláusula en tu correo corporativo."
+        "¿Me ayudas confirmando de recibido cuando la hayas revisado?\n\n"
+        "¡Gracias por tu apoyo! ",
+        inline=False
+    )
+
+    embed.add_field(
         name="🟢 Entrada 🟢",
-        value="Registre el inicio de jornada con su respectivo ID de Empleado ",
+        value="Registre su inicio con su respectivo ID de Empleado ",
         inline=False
     )
 
     embed.add_field(
         name="🔴 Salida 🔴",
-        value="Registre el fin de su jornada con su respectivo ID de Empleado",
+        value="Registre su terminación con su respectivo ID de Empleado",
         inline=False
     )
 
@@ -335,7 +343,7 @@ async def panel(ctx):
         view_menu.add_item(EntradaSelect())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID",
             view=view_menu,
             ephemeral=True
         )
@@ -346,7 +354,7 @@ async def panel(ctx):
         view_menu.add_item(EntradaSelect2())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID",
             view=view_menu,
             ephemeral=True
         )
@@ -361,7 +369,7 @@ async def panel(ctx):
         view_menu.add_item(SalidaSelect())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID",
             view=view_menu,
             ephemeral=True
         )
@@ -372,7 +380,7 @@ async def panel(ctx):
         view_menu.add_item(SalidaSelect2())
 
         await interaction.response.send_message(
-            "Selecciona tu ID",
+            "Seleccione su ID",
             view=view_menu,
             ephemeral=True
         )
