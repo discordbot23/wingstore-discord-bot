@@ -286,6 +286,15 @@ async def panel(ctx):
     )
 
     embed.add_field(
+        name="AVISO URGENTE - CONFIRMACIÓN DE CLAUSULA CORREO CORPORATIVO",
+        value="¡Hola!\n\n"
+        "En unos momentos recibirás una cláusula en tu correo corporativo. "
+        "¿Me ayudas confirmando de recibido cuando la hayas revisado?\n\n"
+        "¡Gracias por tu apoyo!",
+        inline=False
+    )
+
+    embed.add_field(
         name="🟢 Entrada 🟢",
         value="Registre el inicio de jornada con su respectivo ID de Empleado ",
         inline=False
