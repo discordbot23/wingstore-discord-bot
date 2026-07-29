@@ -281,7 +281,7 @@ async def panel(ctx):
 
     embed.add_field(
         name="AVISO - CONFIRMACIÓN DE CLAUSULA POR CORREO CORPORATIVO",
-        value=""¡Hola!\n\n"
+        value="¡Hola!\n\n"
         "En unos momentos recibirás una cláusula en tu correo corporativo. "
         "¿Me ayudas confirmando de recibido cuando la hayas revisado?\n\n"
         "¡Gracias por tu apoyo!",
