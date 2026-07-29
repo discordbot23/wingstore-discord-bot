@@ -64,7 +64,7 @@ def registrar_entrada(id_emp, actividad, usuario):
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M")
 
-    fila = len(sheet_registro.get_all_values()) + 1
+    fila = len(sheet_registro.col_values(1)) + 1
 
     sheet_registro.update(
         f"A{fila}:F{fila}",
@@ -77,11 +77,15 @@ def registrar_entrada(id_emp, actividad, usuario):
 
 def registrar_salida(id_emp, usuario):
 
-    registros = sheet_registro.get_all_values()
+    total_filas = len(sheet_registro.col_values(1))
+    inicio = max(total_filas - 150, 2)
 
-    for i in range(len(registros)-1, 0, -1):
+    registros = sheet_registro.get(f"A{inicio}:D{total_filas}")
 
-        fila = registros[i]
+    for index, fila in reversed(list(enumerate(registros, start=inicio))):
+
+        while len(fila) < 4:
+            fila.append("")
 
         if fila[1] == id_emp and fila[3] == "":
 
@@ -89,20 +93,22 @@ def registrar_salida(id_emp, usuario):
             hora = ahora.strftime("%H:%M")
 
             sheet_registro.update(
-                f"D{i+1}",
+                f"D{index}",
                 [[hora]]
             )
 
-            break
+            return True
+
+    return False
 
 # =========================
 # CLASS MODAL
 # =========================
-class ActividadModal(discord.ui.Modal, title="Registrar la actividad a realizar de Hoy"):
+class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
 
 
     actividad = discord.ui.TextInput(
-        label="Describe la actividad",
+        label="Describe tu actividad",
         style=discord.TextStyle.paragraph,
         placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
         required=True,
@@ -121,7 +127,7 @@ class ActividadModal(discord.ui.Modal, title="Registrar la actividad a realizar 
         registrar_entrada(self.id_emp, actividad, interaction.user.name)
 
         await interaction.response.send_message(
-            "🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu entrada correctamente. ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
+            "✅ Entrada registrada correctamente",
             ephemeral=True
         )
 
@@ -143,7 +149,7 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID UNICO (WS-001 WS-027)",
+            placeholder="Selecciona tu ID (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -169,7 +175,7 @@ class EntradaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID UNICO (WS-028 WS-050)",
+            placeholder="Selecciona tu ID (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -200,7 +206,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID UNICO (WS-001 WS-027)",
+            placeholder="Selecciona tu ID (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -213,7 +219,7 @@ class SalidaSelect(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
+            " ✅ Salida registrada",
             ephemeral=True
         )
         
@@ -232,7 +238,7 @@ class SalidaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Selecciona tu ID UNICO (WS-028 WS-050)",
+            placeholder="Selecciona tu ID (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -245,7 +251,7 @@ class SalidaSelect2(discord.ui.Select):
         registrar_salida(id_emp, interaction.user.name)
 
         await interaction.response.send_message(
-            " ✅🪽 ¡Hola! Soy el Tío Max.\n\nYa registré tu salida correctamente. Gracias por acompañarnos el día de hoy. ¡Que tengas un excelente descanso!",
+            " ✅ Salida registrada",
             ephemeral=True
         )
 # =========================
@@ -274,33 +280,24 @@ class SalidaMenu(discord.ui.View):
 async def panel(ctx):
 
     embed = discord.Embed(
-        title=" Registro de prestación de servicios de Wings Store - Powered By Human Resources ",
-        description="Seleccione una opción para registrar su inicio o su terminación de prestación de servicios",
+        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
+        description="Selecciona una opción",
         color=0x5865F2
     )
 
     embed.add_field(
-        name="AVISO - CONFIRMACIÓN DE CLAUSULA POR CORREO CORPORATIVO",
-        value="¡Hola!\n\n"
-        "En unos momentos recibirás una cláusula en tu correo corporativo. "
-        "¿Me ayudas confirmando de recibido cuando la hayas revisado?\n\n"
-        "¡Gracias por tu apoyo!",
-        inline=False
-    )
-
-    embed.add_field(
         name="🟢 Entrada 🟢",
-        value="Registre su inicio de prestación de servicios con su respectivo ID de Empleado ",
+        value="Registre el inicio de jornada con su respectivo ID de Empleado ",
         inline=False
     )
 
     embed.add_field(
         name="🔴 Salida 🔴",
-        value="Registre el fin de su prestación de servicios con su respectivo ID de Empleado",
+        value="Registre el fin de su jornada con su respectivo ID de Empleado",
         inline=False
     )
 
-    embed.set_footer(text="Sistema Automatizado y controlado por Human Resources Wings Store")
+    embed.set_footer(text="Sistema Automatizado y controlado por HR|Dept.")
 
     view = discord.ui.View(timeout=None)
 
@@ -309,22 +306,22 @@ async def panel(ctx):
     # =========================
 
     boton_entrada_1 = discord.ui.Button(
-        label="Registre su entrada a Wings Store del WS-001 a WS-027",
+        label="Entrada WS-001 a WS-027",
         style=discord.ButtonStyle.success
     )
 
     boton_entrada_2 = discord.ui.Button(
-        label="Registre su entrada a Wings Store del WS-028 a WS-050",
+        label="Entrada WS-028 a WS-050",
         style=discord.ButtonStyle.success
     )
 
     boton_salida_1 = discord.ui.Button(
-        label="Registre su salida de Wings Store del WS-001 a WS-027",
+        label="Salida WS-001 a WS-027",
         style=discord.ButtonStyle.danger
     )
 
     boton_salida_2 = discord.ui.Button(
-        label="Registre su salida de Wings Store del WS-028 a WS-050",
+        label="Salida WS-028 a WS-050",
         style=discord.ButtonStyle.danger
     )
 
@@ -334,29 +331,25 @@ async def panel(ctx):
 
     async def entrada1_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(EntradaSelect())
-
-    await interaction.followup.send(
-        "Selecciona tu ID UNICO",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     async def entrada2_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(EntradaSelect2())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(EntradaSelect2())
-
-    await interaction.followup.send(
-        "Selecciona tu ID UNICO",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     # =========================
     # CALLBACKS SALIDA
@@ -364,29 +357,25 @@ async def panel(ctx):
 
     async def salida1_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(SalidaSelect())
-
-    await interaction.followup.send(
-        "Selecciona tu ID UNICO",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     async def salida2_callback(interaction):
 
-    await interaction.response.defer(ephemeral=True)
+        view_menu = discord.ui.View(timeout=None)
+        view_menu.add_item(SalidaSelect2())
 
-    view_menu = discord.ui.View(timeout=None)
-    view_menu.add_item(SalidaSelect2())
-
-    await interaction.followup.send(
-        "Selecciona tu ID UNICO",
-        view=view_menu,
-        ephemeral=True
-    )
+        await interaction.response.send_message(
+            "Selecciona tu ID",
+            view=view_menu,
+            ephemeral=True
+        )
 
     # =========================
     # ASIGNAR CALLBACKS
