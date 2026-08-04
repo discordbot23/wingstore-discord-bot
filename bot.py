@@ -281,7 +281,7 @@ async def panel(ctx):
 
     embed = discord.Embed(
         title=" REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE ",
-        description="🔴AVISO - CONFIRMACIÓN DE CLAUSULA POR CORREO CORPORATIVO🔴",
+        description="🔴AVISO - ENVÍO DE CONTRATOS AL ÁREA DE SUPPORT ESTA SEMANA",
         color=0x5865F2
     )
 
