@@ -127,7 +127,7 @@ class ActividadModal(discord.ui.Modal, title="REGISTRE LA ACTIVIDAD DE HOY"):
         registrar_entrada(self.id_emp, actividad, interaction.user.name)
 
         await interaction.response.send_message(
-            "✅🪽 ¡Hola! Soy el Tío Max y ya registré su entrada correctamente. ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
+            "✅🪽 ¡Hola!  Soy el Tío Max y ya registré su entrada correctamente. ¡Te deseo una excelente jornada y mucho éxito el día de hoy!",
             ephemeral=True
         )
 
