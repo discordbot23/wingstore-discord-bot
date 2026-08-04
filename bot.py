@@ -149,7 +149,7 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
+            placeholder="Seleccione su ID (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -175,7 +175,7 @@ class EntradaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
+            placeholder="Seleccione su ID (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
@@ -206,7 +206,7 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Seleccione su ID UNICO (WS-001 WS-027)",
+            placeholder="Seleccione su ID (WS-001 WS-027)",
             min_values=1,
             max_values=1,
             options=options
@@ -238,7 +238,7 @@ class SalidaSelect2(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder="Seleccione su ID UNICO (WS-028 WS-050)",
+            placeholder="Seleccione su ID (WS-028 WS-050)",
             min_values=1,
             max_values=1,
             options=options
