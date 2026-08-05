@@ -880,7 +880,7 @@ async def panel(ctx: commands.Context) -> None:
         title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
         description=(
             "Utilice los botones para registrar su entrada o salida.\n\n"
-            "FELICIDADES AL ÁREA DEL MÉS DE AGOSTO: ?????"
+            "🏆FELICIDADES AL ÁREA DEL MÉS DE AGOSTO: ?????🏆.\n"
         ),
         color=0x5865F2,
     )
