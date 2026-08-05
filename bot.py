@@ -469,14 +469,14 @@ class ActividadModal(discord.ui.Modal):
 
             if success and incidencia:
                 await interaction.followup.send(
-                    "✅ **Su nueva entrada fue registrada correctamente.**\n"
-                    f"**{detail}**\n\n"
-                    "⚠️ **Advertencia de jornada:** se detectó que la "
+                    "**Su nueva entrada fue registrada correctamente.**\n"
+                    f"**{detail}**✅ \n\n"
+                    "**Advertencia de jornada:** se detectó que la "
                     f"entrada del **{incidencia['fecha']} a las "
                     f"{incidencia['hora']}** no cuenta con una salida "
                     "registrada.\n\n"
                     "Puede continuar con normalidad. Recursos Humanos "
-                    "fue notificado para revisar la incidencia.",
+                    "fue notificado para revisar la incidencia.⚠️",
                     ephemeral=True,
                 )
 
