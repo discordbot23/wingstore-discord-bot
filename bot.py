@@ -912,7 +912,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.set_footer(
-        text="Sistema automatizado y controlado por Human Resources Dept."
+        text="Sistema automatizado y controlado por Human Dept."
     )
 
     await ctx.send(embed=embed, view=MainPanelView())
