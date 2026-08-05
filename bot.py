@@ -432,7 +432,7 @@ async def notificar_incidencia_rrhh(
 class ActividadModal(discord.ui.Modal):
     def __init__(self, id_emp: str):
         super().__init__(
-            title="REGISTRE LA ACTIVIDAD A REALIZAR EL DIA DE HOY",
+            title="REGISTRE LA ACTIVIDAD DE HOY",
             timeout=300,
         )
 
@@ -469,14 +469,14 @@ class ActividadModal(discord.ui.Modal):
 
             if success and incidencia:
                 await interaction.followup.send(
-                    "✅ **Su nueva entrada ha sido registrada correctamente.**\n"
+                    "✅ **Su nueva entrada fue registrada correctamente.**\n"
                     f"**{detail}**\n\n"
                     "⚠️ **Advertencia de jornada:** se detectó que la "
                     f"entrada del **{incidencia['fecha']} a las "
-                    f"{incidencia['hora']}** no cuenta con una salida registrada "
-                    "registrada.⚠️\n\n"
+                    f"{incidencia['hora']}** no cuenta con una salida "
+                    "registrada.\n\n"
                     "Puede continuar con normalidad. Recursos Humanos "
-                    "ha sido notificado en este momento para revisar la incidencia.",
+                    "fue notificado para revisar la incidencia.",
                     ephemeral=True,
                 )
 
@@ -490,7 +490,7 @@ class ActividadModal(discord.ui.Modal):
                     "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
                     "entrada correctamente.\n"
                     f"**{detail}**\n"
-                    "¡Le deseo un excelente día, eres muy importante para nosotros!",
+                    "¡Te deseo una excelente jornada y mucho éxito!",
                     ephemeral=True,
                 )
 
@@ -503,8 +503,8 @@ class ActividadModal(discord.ui.Modal):
 
             await interaction.followup.send(
                 "❌ No pude registrar su entrada después de varios intentos. "
-                "Inténtelo nuevamente en un momento "
-                "o comuníquese con Human Resources Dept..",
+                "No se mostró una confirmación falsa. Inténtelo nuevamente "
+                "en un momento o comuníquese con Recursos Humanos.",
                 ephemeral=True,
             )
 
@@ -520,7 +520,7 @@ class ActividadModal(discord.ui.Modal):
 
         message = (
             "❌ Ocurrió un error inesperado. Inténtelo nuevamente o "
-            "comuníquese con Human Resources Dept.."
+            "comuníquese con Recursos Humanos."
         )
 
         if interaction.response.is_done():
@@ -546,10 +546,10 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (WS-001 WS-027)"
+            placeholder = "Seleccione su ID (grupo 1)"
             custom_id = "tio_max:entrada_select:1"
         else:
-            placeholder = "Seleccione su ID (WS-028 WS-050)"
+            placeholder = "Seleccione su ID (grupo 2)"
             custom_id = "tio_max:entrada_select:2"
 
         super().__init__(
@@ -579,10 +579,10 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (WS-001 WS-027)"
+            placeholder = "Seleccione su ID (grupo 1)"
             custom_id = "tio_max:salida_select:1"
         else:
-            placeholder = "Seleccione su ID (WS-028 WS-050)"
+            placeholder = "Seleccione su ID (grupo 2)"
             custom_id = "tio_max:salida_select:2"
 
         super().__init__(
@@ -614,7 +614,7 @@ class SalidaSelect(discord.ui.Select):
                     "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
                     "salida correctamente.\n"
                     f"**{detail}**\n"
-                    "Gracias por todo lo que hiciste el día de hoy. "
+                    "Gracias por acompañarnos el día de hoy. "
                     "¡Que tengas un excelente descanso!",
                     ephemeral=True,
                 )
@@ -887,7 +887,7 @@ async def panel(ctx: commands.Context) -> None:
     embed.add_field(
         name="¡Hola! Soy el Tío Max",
         value=(
-            "Estoy listo para registrar su Prestacion de Servicios. "
+            "Estoy listo para registrar su jornada. "
             "Seleccione la opción correspondiente y después su ID."
         ),
         inline=False,
@@ -897,7 +897,7 @@ async def panel(ctx: commands.Context) -> None:
         name="🟢 Entrada 🟢",
         value=(
             "Registre el inicio de la jornada con su respectivo "
-            "ID de empleado correspondiente."
+            "ID de empleado."
         ),
         inline=False,
     )
@@ -906,13 +906,13 @@ async def panel(ctx: commands.Context) -> None:
         name="🔴 Salida 🔴",
         value=(
             "Registre la terminación de la jornada con su respectivo "
-            "ID de empleado correspondiente."
+            "ID de empleado."
         ),
         inline=False,
     )
 
     embed.set_footer(
-        text="Sistema automatizado y controlado por Human Dept."
+        text="Sistema automatizado y controlado por HR | Dept."
     )
 
     await ctx.send(embed=embed, view=MainPanelView())
