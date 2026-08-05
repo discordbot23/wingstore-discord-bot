@@ -1,425 +1,844 @@
-import discord
-from discord.ext import commands
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-import os
+import asyncio
 import json
+import logging
+import os
+import random
+from datetime import datetime
+from typing import Callable, TypeVar
+from zoneinfo import ZoneInfo
 
-# =========================
-# GOOGLE SHEETS
-# =========================
+import discord
+import gspread
+from discord.ext import commands, tasks
+from google.oauth2.service_account import Credentials
+
+
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+GOOGLE_CREDENTIALS_RAW = os.getenv("GOOGLE_CREDENTIALS")
+
+SPREADSHEET_NAME = os.getenv(
+    "SPREADSHEET_NAME",
+    "Wings Store People Operations Master",
+)
+REGISTRO_SHEET_NAME = os.getenv(
+    "REGISTRO_SHEET_NAME",
+    "Respuestas de formulario 1",
+)
+EMPLEADOS_SHEET_NAME = os.getenv(
+    "EMPLEADOS_SHEET_NAME",
+    "EMPLEADOS Y CONTRATOS",
+)
+BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
+
+MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
+IDS_REFRESH_MINUTES = int(os.getenv("IDS_REFRESH_MINUTES", "10"))
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
 ]
 
-creds = Credentials.from_service_account_info(
-    json.loads(os.getenv("GOOGLE_CREDENTIALS")),
-    scopes=SCOPES
+if not DISCORD_TOKEN:
+    raise RuntimeError("Falta la variable de entorno DISCORD_TOKEN.")
+
+if not GOOGLE_CREDENTIALS_RAW:
+    raise RuntimeError("Falta la variable de entorno GOOGLE_CREDENTIALS.")
+
+try:
+    SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_CREDENTIALS_RAW)
+except json.JSONDecodeError as exc:
+    raise RuntimeError(
+        "GOOGLE_CREDENTIALS no contiene un JSON válido."
+    ) from exc
+
+try:
+    TIMEZONE = ZoneInfo(BOT_TIMEZONE)
+except Exception as exc:
+    raise RuntimeError(
+        f"La zona horaria BOT_TIMEZONE no es válida: {BOT_TIMEZONE}"
+    ) from exc
+
+
+# ============================================================
+# LOGS
+# ============================================================
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-client = gspread.authorize(creds)
+logger = logging.getLogger("winston")
 
-spreadsheet = client.open("Wingstore People Operations Master")
 
-sheet_registro = spreadsheet.worksheet("Respuestas de formulario 1")
-sheet_empleados = spreadsheet.worksheet("EMPLEADOS Y CONTRATOS")
-IDS_CACHE = []
+# ============================================================
+# GOOGLE SHEETS
+# ============================================================
 
-def cargar_ids():
+google_client: gspread.Client | None = None
+spreadsheet: gspread.Spreadsheet | None = None
+sheet_registro: gspread.Worksheet | None = None
+sheet_empleados: gspread.Worksheet | None = None
+
+IDS_CACHE: list[str] = []
+
+# Serializa las operaciones administrativas sobre la hoja.
+# Evita que dos interacciones del mismo proceso modifiquen la hoja a la vez.
+SHEETS_ASYNC_LOCK = asyncio.Lock()
+
+T = TypeVar("T")
+
+
+def conectar_google_sync() -> None:
+    """Crea nuevamente la conexión y obtiene las hojas necesarias."""
+    global google_client, spreadsheet, sheet_registro, sheet_empleados
+
+    credentials = Credentials.from_service_account_info(
+        SERVICE_ACCOUNT_INFO,
+        scopes=SCOPES,
+    )
+
+    google_client = gspread.authorize(credentials)
+    spreadsheet = google_client.open(SPREADSHEET_NAME)
+    sheet_registro = spreadsheet.worksheet(REGISTRO_SHEET_NAME)
+    sheet_empleados = spreadsheet.worksheet(EMPLEADOS_SHEET_NAME)
+
+    logger.info("Conexión con Google Sheets establecida.")
+
+
+def asegurar_google_sync() -> None:
+    if sheet_registro is None or sheet_empleados is None:
+        conectar_google_sync()
+
+
+def ejecutar_google_con_reintentos_sync(
+    operation_name: str,
+    operation: Callable[[], T],
+) -> T:
+    """
+    Ejecuta una operación de Google con reintentos y reconexión.
+
+    Tras agotar los intentos, vuelve a lanzar el último error para que
+    Discord muestre un mensaje real de fallo en vez de confirmar algo
+    que no quedó registrado.
+    """
+    global google_client, spreadsheet, sheet_registro, sheet_empleados
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, MAX_GOOGLE_RETRIES + 1):
+        try:
+            asegurar_google_sync()
+            return operation()
+
+        except Exception as exc:
+            last_error = exc
+
+            logger.exception(
+                "Falló '%s' en el intento %s/%s.",
+                operation_name,
+                attempt,
+                MAX_GOOGLE_RETRIES,
+            )
+
+            # Fuerza una conexión nueva en el siguiente intento.
+            google_client = None
+            spreadsheet = None
+            sheet_registro = None
+            sheet_empleados = None
+
+            if attempt < MAX_GOOGLE_RETRIES:
+                # Espera exponencial con una pequeña variación.
+                delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
+                import time
+                time.sleep(delay)
+
+    assert last_error is not None
+    raise last_error
+
+
+def cargar_ids_sync() -> list[str]:
+    def operation() -> list[str]:
+        assert sheet_empleados is not None
+
+        data = sheet_empleados.get("A4:A")
+
+        # Elimina vacíos y duplicados conservando el orden.
+        ids = list(
+            dict.fromkeys(
+                str(row[0]).strip()
+                for row in data
+                if row and str(row[0]).strip()
+            )
+        )
+
+        return ids
+
+    return ejecutar_google_con_reintentos_sync(
+        "cargar IDs de empleados",
+        operation,
+    )
+
+
+def obtener_registros_sync() -> list[list[str]]:
+    def operation() -> list[list[str]]:
+        assert sheet_registro is not None
+        return sheet_registro.get("A:F")
+
+    return ejecutar_google_con_reintentos_sync(
+        "consultar registros",
+        operation,
+    )
+
+
+def buscar_entrada_abierta(
+    registros: list[list[str]],
+    id_emp: str,
+) -> tuple[int, list[str]] | None:
+    """
+    Devuelve (número_de_fila, fila) de la entrada abierta más reciente.
+
+    Se considera abierta cuando:
+    - Columna B = ID solicitado.
+    - Columna C contiene hora de entrada.
+    - Columna D está vacía.
+    """
+    for row_number in range(len(registros), 1, -1):
+        row = registros[row_number - 1]
+        normalized = row + [""] * max(0, 6 - len(row))
+
+        employee_id = normalized[1].strip()
+        entry_time = normalized[2].strip()
+        exit_time = normalized[3].strip()
+
+        if employee_id == id_emp and entry_time and not exit_time:
+            return row_number, normalized
+
+    return None
+
+
+def registrar_entrada_sync(
+    id_emp: str,
+    actividad: str,
+    usuario: str,
+) -> tuple[bool, str]:
+    """
+    Registra una entrada mediante append_row.
+
+    append_row evita calcular manualmente la próxima fila y reduce el riesgo
+    de que un registro reemplace a otro.
+    """
+    def operation() -> tuple[bool, str]:
+        assert sheet_registro is not None
+
+        registros = sheet_registro.get("A:F")
+        abierta = buscar_entrada_abierta(registros, id_emp)
+
+        if abierta:
+            _, row = abierta
+            fecha_anterior = row[0] or "fecha no disponible"
+            hora_anterior = row[2] or "hora no disponible"
+
+            return (
+                False,
+                "Ya existe una jornada abierta para "
+                f"{id_emp}, registrada el {fecha_anterior} a las "
+                f"{hora_anterior}. Primero debe registrarse la salida.",
+            )
+
+        ahora = datetime.now(TIMEZONE)
+        fecha = ahora.strftime("%Y-%m-%d")
+        hora = ahora.strftime("%H:%M")
+
+        sheet_registro.append_row(
+            [fecha, id_emp, hora, "", actividad.strip(), usuario],
+            value_input_option="USER_ENTERED",
+        )
+
+        return True, f"Entrada registrada a las {hora}."
+
+    return ejecutar_google_con_reintentos_sync(
+        f"registrar entrada de {id_emp}",
+        operation,
+    )
+
+
+def registrar_salida_sync(
+    id_emp: str,
+    usuario: str,
+) -> tuple[bool, str]:
+    del usuario  # Reservado para futuras auditorías.
+
+    def operation() -> tuple[bool, str]:
+        assert sheet_registro is not None
+
+        registros = sheet_registro.get("A:F")
+        abierta = buscar_entrada_abierta(registros, id_emp)
+
+        if not abierta:
+            return (
+                False,
+                f"No encontré una jornada abierta para {id_emp}.",
+            )
+
+        row_number, row = abierta
+        ahora = datetime.now(TIMEZONE)
+        hora = ahora.strftime("%H:%M")
+
+        sheet_registro.update(
+            range_name=f"D{row_number}",
+            values=[[hora]],
+            value_input_option="USER_ENTERED",
+        )
+
+        fecha_entrada = row[0] or "fecha no disponible"
+        hora_entrada = row[2] or "hora no disponible"
+
+        return (
+            True,
+            "Salida registrada a las "
+            f"{hora}. Entrada original: {fecha_entrada} {hora_entrada}.",
+        )
+
+    return ejecutar_google_con_reintentos_sync(
+        f"registrar salida de {id_emp}",
+        operation,
+    )
+
+
+async def actualizar_cache_ids() -> bool:
     global IDS_CACHE
 
-    data = sheet_empleados.get("A4:A")
+    try:
+        ids = await asyncio.to_thread(cargar_ids_sync)
 
-    IDS_CACHE = [
-        fila[0]
-        for fila in data
-        if fila
-    ]
+        if not ids:
+            logger.warning(
+                "Google Sheets respondió, pero no devolvió IDs en A4:A."
+            )
+            return False
 
-# =========================
-# DISCORD BOT
-# =========================
+        IDS_CACHE = ids
+        logger.info("Caché actualizada: %s IDs cargados.", len(IDS_CACHE))
+        return True
+
+    except Exception:
+        logger.exception("No fue posible actualizar la caché de IDs.")
+        return False
+
+
+def obtener_grupo_ids(group_number: int) -> list[str]:
+    if group_number == 1:
+        return IDS_CACHE[:25]
+
+    if group_number == 2:
+        return IDS_CACHE[25:50]
+
+    return []
+
+
+# ============================================================
+# MODAL DE ACTIVIDAD
+# ============================================================
+
+class ActividadModal(discord.ui.Modal):
+    def __init__(self, id_emp: str):
+        super().__init__(
+            title="REGISTRE LA ACTIVIDAD DE HOY",
+            timeout=300,
+        )
+
+        self.id_emp = id_emp
+
+        self.actividad = discord.ui.TextInput(
+            label="Describe la actividad a realizar el día de hoy",
+            style=discord.TextStyle.paragraph,
+            placeholder=(
+                "Ej.: Diseño de publicaciones, programación, "
+                "atención a clientes..."
+            ),
+            required=True,
+            max_length=300,
+        )
+
+        self.add_item(self.actividad)
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        # Confirma inmediatamente a Discord que la operación está en proceso.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        try:
+            async with SHEETS_ASYNC_LOCK:
+                success, detail = await asyncio.to_thread(
+                    registrar_entrada_sync,
+                    self.id_emp,
+                    str(self.actividad.value),
+                    str(interaction.user),
+                )
+
+            if success:
+                await interaction.followup.send(
+                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
+                    "entrada correctamente.\n"
+                    f"**{detail}**\n"
+                    "¡Te deseo una excelente jornada y mucho éxito!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ **No se registró una nueva entrada.**\n{detail}",
+                    ephemeral=True,
+                )
+
+        except Exception:
+            logger.exception(
+                "Error definitivo registrando entrada | ID=%s | Usuario=%s",
+                self.id_emp,
+                interaction.user,
+            )
+
+            await interaction.followup.send(
+                "❌ No pude registrar su entrada después de varios intentos. "
+                "No se mostró una confirmación falsa. Inténtelo nuevamente "
+                "en un momento o comuníquese con Recursos Humanos.",
+                ephemeral=True,
+            )
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+    ) -> None:
+        logger.exception(
+            "Error no controlado en ActividadModal.",
+            exc_info=error,
+        )
+
+        message = (
+            "❌ Ocurrió un error inesperado. Inténtelo nuevamente o "
+            "comuníquese con Recursos Humanos."
+        )
+
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                message,
+                ephemeral=True,
+            )
+
+
+# ============================================================
+# SELECTORES
+# ============================================================
+
+class EntradaSelect(discord.ui.Select):
+    def __init__(self, group_number: int):
+        ids = obtener_grupo_ids(group_number)
+
+        options = [
+            discord.SelectOption(label=employee_id, value=employee_id)
+            for employee_id in ids
+        ]
+
+        if group_number == 1:
+            placeholder = "Seleccione su ID (grupo 1)"
+            custom_id = "winston:entrada_select:1"
+        else:
+            placeholder = "Seleccione su ID (grupo 2)"
+            custom_id = "winston:entrada_select:2"
+
+        super().__init__(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=custom_id,
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.send_modal(
+            ActividadModal(self.values[0])
+        )
+
+
+class SalidaSelect(discord.ui.Select):
+    def __init__(self, group_number: int):
+        ids = obtener_grupo_ids(group_number)
+
+        options = [
+            discord.SelectOption(label=employee_id, value=employee_id)
+            for employee_id in ids
+        ]
+
+        if group_number == 1:
+            placeholder = "Seleccione su ID (grupo 1)"
+            custom_id = "winston:salida_select:1"
+        else:
+            placeholder = "Seleccione su ID (grupo 2)"
+            custom_id = "winston:salida_select:2"
+
+        super().__init__(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=custom_id,
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        id_emp = self.values[0]
+
+        try:
+            async with SHEETS_ASYNC_LOCK:
+                success, detail = await asyncio.to_thread(
+                    registrar_salida_sync,
+                    id_emp,
+                    str(interaction.user),
+                )
+
+            if success:
+                await interaction.followup.send(
+                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
+                    "salida correctamente.\n"
+                    f"**{detail}**\n"
+                    "Gracias por acompañarnos el día de hoy. "
+                    "¡Que tengas un excelente descanso!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ **No se registró la salida.**\n{detail}",
+                    ephemeral=True,
+                )
+
+        except Exception:
+            logger.exception(
+                "Error definitivo registrando salida | ID=%s | Usuario=%s",
+                id_emp,
+                interaction.user,
+            )
+
+            await interaction.followup.send(
+                "❌ No pude registrar su salida después de varios intentos. "
+                "No se mostró una confirmación falsa. Inténtelo nuevamente "
+                "en un momento o comuníquese con Recursos Humanos.",
+                ephemeral=True,
+            )
+
+
+class EntradaSelectView(discord.ui.View):
+    def __init__(self, group_number: int):
+        super().__init__(timeout=180)
+        self.add_item(EntradaSelect(group_number))
+
+
+class SalidaSelectView(discord.ui.View):
+    def __init__(self, group_number: int):
+        super().__init__(timeout=180)
+        self.add_item(SalidaSelect(group_number))
+
+
+# ============================================================
+# PANEL PRINCIPAL PERSISTENTE
+# ============================================================
+
+class MainPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _ensure_ids(
+        self,
+        interaction: discord.Interaction,
+    ) -> bool:
+        if IDS_CACHE:
+            return True
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        updated = await actualizar_cache_ids()
+
+        if not updated:
+            await interaction.followup.send(
+                "❌ No pude cargar la lista de IDs en este momento. "
+                "Inténtelo nuevamente en unos segundos.",
+                ephemeral=True,
+            )
+            return False
+
+        return True
+
+    async def _send_entry_menu(
+        self,
+        interaction: discord.Interaction,
+        group_number: int,
+    ) -> None:
+        if not IDS_CACHE:
+            if not await self._ensure_ids(interaction):
+                return
+
+            response_sender = interaction.followup.send
+        else:
+            response_sender = interaction.response.send_message
+
+        ids = obtener_grupo_ids(group_number)
+
+        if not ids:
+            await response_sender(
+                "⚠️ No hay IDs disponibles en este grupo.",
+                ephemeral=True,
+            )
+            return
+
+        await response_sender(
+            "Seleccione su ID:",
+            view=EntradaSelectView(group_number),
+            ephemeral=True,
+        )
+
+    async def _send_exit_menu(
+        self,
+        interaction: discord.Interaction,
+        group_number: int,
+    ) -> None:
+        if not IDS_CACHE:
+            if not await self._ensure_ids(interaction):
+                return
+
+            response_sender = interaction.followup.send
+        else:
+            response_sender = interaction.response.send_message
+
+        ids = obtener_grupo_ids(group_number)
+
+        if not ids:
+            await response_sender(
+                "⚠️ No hay IDs disponibles en este grupo.",
+                ephemeral=True,
+            )
+            return
+
+        await response_sender(
+            "Seleccione su ID:",
+            view=SalidaSelectView(group_number),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Entrada WS-001 a WS-027",
+        style=discord.ButtonStyle.success,
+        custom_id="winston:panel:entrada:1",
+        row=0,
+    )
+    async def entrada_grupo_1(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._send_entry_menu(interaction, 1)
+
+    @discord.ui.button(
+        label="Entrada WS-028 a WS-050",
+        style=discord.ButtonStyle.success,
+        custom_id="winston:panel:entrada:2",
+        row=0,
+    )
+    async def entrada_grupo_2(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._send_entry_menu(interaction, 2)
+
+    @discord.ui.button(
+        label="Salida WS-001 a WS-027",
+        style=discord.ButtonStyle.danger,
+        custom_id="winston:panel:salida:1",
+        row=1,
+    )
+    async def salida_grupo_1(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._send_exit_menu(interaction, 1)
+
+    @discord.ui.button(
+        label="Salida WS-028 a WS-050",
+        style=discord.ButtonStyle.danger,
+        custom_id="winston:panel:salida:2",
+        row=1,
+    )
+    async def salida_grupo_2(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._send_exit_menu(interaction, 2)
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item,
+    ) -> None:
+        logger.exception(
+            "Error en MainPanelView | Item=%s",
+            item,
+            exc_info=error,
+        )
+
+        message = (
+            "❌ Ocurrió un error procesando la opción. "
+            "Inténtelo nuevamente."
+        )
+
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                message,
+                ephemeral=True,
+            )
+
+
+# ============================================================
+# BOT
+# ============================================================
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
 
-# =========================
-# OBTENER IDS
-# =========================
+class WinstonBot(commands.Bot):
+    async def setup_hook(self) -> None:
+        # Registra el panel persistente antes de conectarse completamente.
+        self.add_view(MainPanelView())
 
-def obtener_ids():
-    return IDS_CACHE
+        await actualizar_cache_ids()
+
+        if not refrescar_ids.is_running():
+            refrescar_ids.start()
 
 
-# =========================
-# REGISTRAR ENTRADA
-# =========================
+bot = WinstonBot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None,
+)
 
-def registrar_entrada(id_emp, actividad, usuario):
 
-    ahora = datetime.utcnow() - timedelta(hours=4)
+@tasks.loop(minutes=IDS_REFRESH_MINUTES)
+async def refrescar_ids() -> None:
+    await actualizar_cache_ids()
 
-    fecha = ahora.strftime("%Y-%m-%d")
-    hora = ahora.strftime("%H:%M")
 
-    fila = len(sheet_registro.col_values(1)) + 1
+@refrescar_ids.before_loop
+async def before_refrescar_ids() -> None:
+    await bot.wait_until_ready()
 
-    sheet_registro.update(
-        f"A{fila}:F{fila}",
-        [[fecha, id_emp, hora, "", actividad, usuario]]
+
+@bot.event
+async def on_ready() -> None:
+    logger.info(
+        "Winston conectado como %s | ID=%s",
+        bot.user,
+        bot.user.id if bot.user else "desconocido",
     )
 
-# =========================
-# REGISTRAR SALIDA
-# =========================
 
-def registrar_salida(id_emp, usuario):
+@bot.event
+async def on_disconnect() -> None:
+    logger.warning("Winston perdió temporalmente la conexión con Discord.")
 
-    total_filas = len(sheet_registro.col_values(1))
-    inicio = max(total_filas - 150, 2)
 
-    registros = sheet_registro.get(f"A{inicio}:D{total_filas}")
+@bot.event
+async def on_resumed() -> None:
+    logger.info("Winston reanudó la sesión con Discord.")
 
-    for index, fila in reversed(list(enumerate(registros, start=inicio))):
 
-        while len(fila) < 4:
-            fila.append("")
-
-        if fila[1] == id_emp and fila[3] == "":
-
-            ahora = datetime.utcnow() - timedelta(hours=4)
-            hora = ahora.strftime("%H:%M")
-
-            sheet_registro.update(
-                f"D{index}",
-                [[hora]]
-            )
-
-            return True
-
-    return False
-
-# =========================
-# CLASS MODAL
-# =========================
-class ActividadModal(discord.ui.Modal, title="Registrar Actividad de Hoy"):
-
-
-    actividad = discord.ui.TextInput(
-        label="Describe tu actividad",
-        style=discord.TextStyle.paragraph,
-        placeholder="Ej: Diseño de publicaciones, programación, atención a clientes...",
-        required=True,
-        max_length=300
-    )
-
-    def __init__(self, id_emp, panel_message):
-        super().__init__()
-        self.id_emp = id_emp
-        self.panel_message= panel_message
-
-    async def on_submit(self, interaction: discord.Interaction):
-
-        actividad = self.actividad.value
-
-        registrar_entrada(self.id_emp, actividad, interaction.user.name)
-
-        await interaction.response.send_message(
-            "✅ Entrada registrada correctamente",
-            ephemeral=True
-        )
-
-        await self.panel_message.delete()
-        
-# =========================
-# SELECT ENTRADA
-# =========================
-
-class EntradaSelect(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        options = [
-            discord.SelectOption(label=i, value=i)
-            for i in ids[:25]
-        ]
-
-        super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        modal = ActividadModal(id_emp, interaction.message)
-
-        await interaction.response.send_modal(modal)
-
-class EntradaSelect2(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        options = [
-            discord.SelectOption(label=i, value=i)
-            for i in ids[25:50]
-        ]
-
-        super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        modal = ActividadModal(id_emp, interaction.message)
-
-        await interaction.response.send_modal(modal)
-        
-
-# =========================
-# SELECT SALIDA
-# =========================
-
-class SalidaSelect(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        options = [
-            discord.SelectOption(label=i, value=i)
-            for i in ids[:25]
-        ]
-
-        super().__init__(
-            placeholder="Selecciona tu ID (WS-001 WS-027)",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        registrar_salida(id_emp, interaction.user.name)
-
-        await interaction.response.send_message(
-            " ✅ Salida registrada",
-            ephemeral=True
-        )
-        
-        await interaction.message.delete()
-
-
-class SalidaSelect2(discord.ui.Select):
-
-    def __init__(self):
-
-        ids = obtener_ids()
-
-        options = [
-            discord.SelectOption(label=i, value=i)
-            for i in ids[25:50]
-        ]
-
-        super().__init__(
-            placeholder="Selecciona tu ID (WS-028 WS-050)",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-
-        id_emp = self.values[0]
-
-        registrar_salida(id_emp, interaction.user.name)
-
-        await interaction.response.send_message(
-            " ✅ Salida registrada",
-            ephemeral=True
-        )
-# =========================
-# MENUS
-# =========================
-
-class EntradaMenu(discord.ui.View):
-
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(EntradaSelect())
-        self.add_item(EntradaSelect2())
-
-class SalidaMenu(discord.ui.View):
-
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(SalidaSelect())
-        self.add_item(SalidaSelect2())
-
-# =========================
-# PANEL PRINCIPAL
-# =========================
-
-@bot.command()
-async def panel(ctx):
-
+@bot.command(name="panel")
+@commands.guild_only()
+async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title=" Wings Store • Registro de Jornada • Human Resources Dept. ",
-        description="Selecciona una opción",
-        color=0x5865F2
+        title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
+        description=(
+            "Utilice los botones para registrar su entrada o salida."
+        ),
+        color=0x5865F2,
+    )
+
+    embed.add_field(
+        name="¡Hola! Soy el Tío Max",
+        value=(
+            "Estoy listo para registrar su jornada. "
+            "Seleccione la opción correspondiente y después su ID."
+        ),
+        inline=False,
     )
 
     embed.add_field(
         name="🟢 Entrada 🟢",
-        value="Registre el inicio de jornada con su respectivo ID de Empleado ",
-        inline=False
+        value=(
+            "Registre el inicio de la jornada con su respectivo "
+            "ID de empleado."
+        ),
+        inline=False,
     )
 
     embed.add_field(
         name="🔴 Salida 🔴",
-        value="Registre el fin de su jornada con su respectivo ID de Empleado",
-        inline=False
+        value=(
+            "Registre la terminación de la jornada con su respectivo "
+            "ID de empleado."
+        ),
+        inline=False,
     )
 
-    embed.set_footer(text="Sistema Automatizado y controlado por HR|Dept.")
-
-    view = discord.ui.View(timeout=None)
-
-    # =========================
-    # BOTONES
-    # =========================
-
-    boton_entrada_1 = discord.ui.Button(
-        label="Entrada WS-001 a WS-027",
-        style=discord.ButtonStyle.success
+    embed.set_footer(
+        text="Sistema automatizado y controlado por HR | Dept."
     )
 
-    boton_entrada_2 = discord.ui.Button(
-        label="Entrada WS-028 a WS-050",
-        style=discord.ButtonStyle.success
+    await ctx.send(embed=embed, view=MainPanelView())
+
+
+@panel.error
+async def panel_error(
+    ctx: commands.Context,
+    error: commands.CommandError,
+) -> None:
+    if isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("Este comando solo puede utilizarse en el servidor.")
+        return
+
+    logger.exception("Error ejecutando !panel.", exc_info=error)
+    await ctx.send(
+        "❌ No pude crear el panel. Revise los logs de Railway."
     )
 
-    boton_salida_1 = discord.ui.Button(
-        label="Salida WS-001 a WS-027",
-        style=discord.ButtonStyle.danger
-    )
 
-    boton_salida_2 = discord.ui.Button(
-        label="Salida WS-028 a WS-050",
-        style=discord.ButtonStyle.danger
-    )
+# ============================================================
+# EJECUCIÓN
+# ============================================================
 
-    # =========================
-    # CALLBACKS ENTRADA
-    # =========================
-
-    async def entrada1_callback(interaction):
-
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(EntradaSelect())
-
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
-
-    async def entrada2_callback(interaction):
-
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(EntradaSelect2())
-
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
-
-    # =========================
-    # CALLBACKS SALIDA
-    # =========================
-
-    async def salida1_callback(interaction):
-
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(SalidaSelect())
-
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
-
-    async def salida2_callback(interaction):
-
-        view_menu = discord.ui.View(timeout=None)
-        view_menu.add_item(SalidaSelect2())
-
-        await interaction.response.send_message(
-            "Selecciona tu ID",
-            view=view_menu,
-            ephemeral=True
-        )
-
-    # =========================
-    # ASIGNAR CALLBACKS
-    # =========================
-
-    boton_entrada_1.callback = entrada1_callback
-    boton_entrada_2.callback = entrada2_callback
-
-    boton_salida_1.callback = salida1_callback
-    boton_salida_2.callback = salida2_callback
-
-    # =========================
-    # AGREGAR BOTONES
-    # =========================
-
-    view.add_item(boton_entrada_1)
-    view.add_item(boton_entrada_2)
-
-    view.add_item(boton_salida_1)
-    view.add_item(boton_salida_2)
-
-    # =========================
-    # ENVIAR PANEL
-    # =========================
-
-    await ctx.send(embed=embed, view=view)
-
-# =========================
-# BOT ONLINE
-# =========================
-
-@bot.event
-async def on_ready():
-    
-    cargar_ids()
-
-    print(f"Bot conectado como {bot.user}")
-
-# =========================
-# RUN
-# =========================
-
-bot.run(os.getenv("DISCORD_TOKEN"))
+if __name__ == "__main__":
+    bot.run(DISCORD_TOKEN, log_handler=None)
