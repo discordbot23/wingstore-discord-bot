@@ -36,6 +36,7 @@ BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 
 MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
 IDS_REFRESH_MINUTES = int(os.getenv("IDS_REFRESH_MINUTES", "10"))
+HR_CHANNEL_ID = int(os.getenv("HR_CHANNEL_ID", "0"))
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -72,7 +73,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-logger = logging.getLogger("winston")
+logger = logging.getLogger("tio_max")
 
 
 # ============================================================
@@ -225,30 +226,33 @@ def registrar_entrada_sync(
     id_emp: str,
     actividad: str,
     usuario: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict | None]:
     """
-    Registra una entrada mediante append_row.
+    Registra una nueva entrada incluso si existe una jornada anterior abierta.
 
-    append_row evita calcular manualmente la próxima fila y reduce el riesgo
-    de que un registro reemplace a otro.
+    Cuando detecta una jornada sin salida:
+    - conserva el registro anterior sin modificarlo;
+    - registra normalmente la nueva entrada;
+    - devuelve los datos de la incidencia para advertir al colaborador
+      y notificar al canal de Recursos Humanos.
     """
-    def operation() -> tuple[bool, str]:
+    def operation() -> tuple[bool, str, dict | None]:
         assert sheet_registro is not None
 
         registros = sheet_registro.get("A:F")
         abierta = buscar_entrada_abierta(registros, id_emp)
 
-        if abierta:
-            _, row = abierta
-            fecha_anterior = row[0] or "fecha no disponible"
-            hora_anterior = row[2] or "hora no disponible"
+        incidencia = None
 
-            return (
-                False,
-                "Ya existe una jornada abierta para "
-                f"{id_emp}, registrada el {fecha_anterior} a las "
-                f"{hora_anterior}. Primero debe registrarse la salida.",
-            )
+        if abierta:
+            row_number, row = abierta
+            incidencia = {
+                "fila": row_number,
+                "fecha": row[0] or "fecha no disponible",
+                "hora": row[2] or "hora no disponible",
+                "id_emp": id_emp,
+                "usuario": usuario,
+            }
 
         ahora = datetime.now(TIMEZONE)
         fecha = ahora.strftime("%Y-%m-%d")
@@ -259,7 +263,7 @@ def registrar_entrada_sync(
             value_input_option="USER_ENTERED",
         )
 
-        return True, f"Entrada registrada a las {hora}."
+        return True, f"Entrada registrada a las {hora}.", incidencia
 
     return ejecutar_google_con_reintentos_sync(
         f"registrar entrada de {id_emp}",
@@ -341,6 +345,86 @@ def obtener_grupo_ids(group_number: int) -> list[str]:
     return []
 
 
+async def notificar_incidencia_rrhh(
+    interaction: discord.Interaction,
+    incidencia: dict,
+) -> None:
+    """
+    Envía la incidencia al canal privado de Recursos Humanos.
+
+    Configure en Railway:
+    HR_CHANNEL_ID=ID_NUMERICO_DEL_CANAL
+    """
+    if not HR_CHANNEL_ID:
+        logger.warning(
+            "Se detectó una incidencia, pero HR_CHANNEL_ID no está configurado."
+        )
+        return
+
+    channel = bot.get_channel(HR_CHANNEL_ID)
+
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(HR_CHANNEL_ID)
+        except Exception:
+            logger.exception(
+                "No fue posible localizar el canal de RRHH con ID %s.",
+                HR_CHANNEL_ID,
+            )
+            return
+
+    embed = discord.Embed(
+        title="🚨 Incidencia de jornada detectada",
+        description=(
+            "Se registró una nueva entrada aunque existía una "
+            "jornada anterior sin salida."
+        ),
+        color=0xF59E0B,
+        timestamp=datetime.now(TIMEZONE),
+    )
+
+    embed.add_field(
+        name="Empleado",
+        value=incidencia["id_emp"],
+        inline=True,
+    )
+    embed.add_field(
+        name="Usuario de Discord",
+        value=str(interaction.user),
+        inline=True,
+    )
+    embed.add_field(
+        name="Entrada anterior sin cerrar",
+        value=f'{incidencia["fecha"]} a las {incidencia["hora"]}',
+        inline=False,
+    )
+    embed.add_field(
+        name="Fila en Google Sheets",
+        value=str(incidencia["fila"]),
+        inline=True,
+    )
+    embed.add_field(
+        name="Nueva entrada",
+        value=datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M"),
+        inline=True,
+    )
+    embed.set_footer(
+        text="Tío Max • Wings Store Human Resources"
+    )
+
+    try:
+        await channel.send(embed=embed)
+        logger.info(
+            "Incidencia enviada a RRHH | ID=%s | Fila=%s",
+            incidencia["id_emp"],
+            incidencia["fila"],
+        )
+    except Exception:
+        logger.exception(
+            "No fue posible enviar la incidencia al canal de RRHH."
+        )
+
+
 # ============================================================
 # MODAL DE ACTIVIDAD
 # ============================================================
@@ -376,24 +460,37 @@ class ActividadModal(discord.ui.Modal):
 
         try:
             async with SHEETS_ASYNC_LOCK:
-                success, detail = await asyncio.to_thread(
+                success, detail, incidencia = await asyncio.to_thread(
                     registrar_entrada_sync,
                     self.id_emp,
                     str(self.actividad.value),
                     str(interaction.user),
                 )
 
-            if success:
+            if success and incidencia:
+                await interaction.followup.send(
+                    "✅ **Su nueva entrada fue registrada correctamente.**\n"
+                    f"**{detail}**\n\n"
+                    "⚠️ **Advertencia de jornada:** se detectó que la "
+                    f"entrada del **{incidencia['fecha']} a las "
+                    f"{incidencia['hora']}** no cuenta con una salida "
+                    "registrada.\n\n"
+                    "Puede continuar con normalidad. Recursos Humanos "
+                    "fue notificado para revisar la incidencia.",
+                    ephemeral=True,
+                )
+
+                await notificar_incidencia_rrhh(
+                    interaction,
+                    incidencia,
+                )
+
+            elif success:
                 await interaction.followup.send(
                     "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
                     "entrada correctamente.\n"
                     f"**{detail}**\n"
                     "¡Te deseo una excelente jornada y mucho éxito!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    f"⚠️ **No se registró una nueva entrada.**\n{detail}",
                     ephemeral=True,
                 )
 
@@ -450,10 +547,10 @@ class EntradaSelect(discord.ui.Select):
 
         if group_number == 1:
             placeholder = "Seleccione su ID (grupo 1)"
-            custom_id = "winston:entrada_select:1"
+            custom_id = "tio_max:entrada_select:1"
         else:
             placeholder = "Seleccione su ID (grupo 2)"
-            custom_id = "winston:entrada_select:2"
+            custom_id = "tio_max:entrada_select:2"
 
         super().__init__(
             placeholder=placeholder,
@@ -483,10 +580,10 @@ class SalidaSelect(discord.ui.Select):
 
         if group_number == 1:
             placeholder = "Seleccione su ID (grupo 1)"
-            custom_id = "winston:salida_select:1"
+            custom_id = "tio_max:salida_select:1"
         else:
             placeholder = "Seleccione su ID (grupo 2)"
-            custom_id = "winston:salida_select:2"
+            custom_id = "tio_max:salida_select:2"
 
         super().__init__(
             placeholder=placeholder,
@@ -642,7 +739,7 @@ class MainPanelView(discord.ui.View):
     @discord.ui.button(
         label="Entrada WS-001 a WS-027",
         style=discord.ButtonStyle.success,
-        custom_id="winston:panel:entrada:1",
+        custom_id="tio_max:panel:entrada:1",
         row=0,
     )
     async def entrada_grupo_1(
@@ -656,7 +753,7 @@ class MainPanelView(discord.ui.View):
     @discord.ui.button(
         label="Entrada WS-028 a WS-050",
         style=discord.ButtonStyle.success,
-        custom_id="winston:panel:entrada:2",
+        custom_id="tio_max:panel:entrada:2",
         row=0,
     )
     async def entrada_grupo_2(
@@ -670,7 +767,7 @@ class MainPanelView(discord.ui.View):
     @discord.ui.button(
         label="Salida WS-001 a WS-027",
         style=discord.ButtonStyle.danger,
-        custom_id="winston:panel:salida:1",
+        custom_id="tio_max:panel:salida:1",
         row=1,
     )
     async def salida_grupo_1(
@@ -684,7 +781,7 @@ class MainPanelView(discord.ui.View):
     @discord.ui.button(
         label="Salida WS-028 a WS-050",
         style=discord.ButtonStyle.danger,
-        custom_id="winston:panel:salida:2",
+        custom_id="tio_max:panel:salida:2",
         row=1,
     )
     async def salida_grupo_2(
@@ -729,7 +826,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 
-class WinstonBot(commands.Bot):
+class TioMaxBot(commands.Bot):
     async def setup_hook(self) -> None:
         # Registra el panel persistente antes de conectarse completamente.
         self.add_view(MainPanelView())
@@ -740,7 +837,7 @@ class WinstonBot(commands.Bot):
             refrescar_ids.start()
 
 
-bot = WinstonBot(
+bot = TioMaxBot(
     command_prefix="!",
     intents=intents,
     help_command=None,
@@ -760,7 +857,7 @@ async def before_refrescar_ids() -> None:
 @bot.event
 async def on_ready() -> None:
     logger.info(
-        "Winston conectado como %s | ID=%s",
+        "Tío Max conectado como %s | ID=%s",
         bot.user,
         bot.user.id if bot.user else "desconocido",
     )
@@ -768,12 +865,12 @@ async def on_ready() -> None:
 
 @bot.event
 async def on_disconnect() -> None:
-    logger.warning("Winston perdió temporalmente la conexión con Discord.")
+    logger.warning("Tío Max perdió temporalmente la conexión con Discord.")
 
 
 @bot.event
 async def on_resumed() -> None:
-    logger.info("Winston reanudó la sesión con Discord.")
+    logger.info("Tío Max reanudó la sesión con Discord.")
 
 
 @bot.command(name="panel")
