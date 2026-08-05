@@ -483,14 +483,14 @@ async def notify_human_resources(
 class WorkActivityModal(discord.ui.Modal):
     def __init__(self, employee_id: str):
         super().__init__(
-            title="TODAY'S WORK ACTIVITY",
+            title="TODAY'S REGISTER-TIME ACTIVITY",
             timeout=300,
         )
 
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="What will you be working on today?",
+            label="¿What will you be working on today?",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Example: Customer Support, Graphic Design, Recruitment..."
@@ -524,13 +524,13 @@ class WorkActivityModal(discord.ui.Modal):
                     "✅ **You're all set!**\n\n"
                     "Your new workday has started successfully.\n"
                     f"**Check-In Time:** {check_in_time}\n\n"
-                    "⚠️ **Open Workday Notice**\n"
+                    "⚠️ **Open Register-Time Notice** ⚠️\n"
                     "We noticed that your previous check-in from "
                     f"**{incident['previous_date']} at "
                     f"{incident['previous_time']}** does not have a "
                     "corresponding check-out.\n\n"
-                    "You may continue working as usual. Human Resources "
-                    "has already been notified and will review the incident.",
+                    "Human Resources has already been notified and will review this incident. "
+                    "You may continue without problem",
                     ephemeral=True,
                 )
 
@@ -957,9 +957,9 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="WINGS STORE WORKDAY PORTAL",
+        title="WINGS STORE OFFICIAL REGISTER-TIME PORTAL",
         description=(
-            "Welcome to the official Wings Store workday system.\n"
+            "Welcome to the official Wings Store Register-Time System.\n"
             "Use the buttons below to check in or check out."
         ),
         color=0x5865F2,
@@ -968,7 +968,7 @@ async def panel(ctx: commands.Context) -> None:
     embed.add_field(
         name="👋 Welcome! I'm Uncle Max",
         value=(
-            "I'm your virtual Workday Assistant, here to help you manage "
+            "I'm your virtual Time Assistant, here to help you manage "
             "your daily check-ins and check-outs.\n\n"
             "Please select an option below to get started."
         ),
@@ -976,17 +976,15 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🏆 AREA OF THE MONTH",
+        name="🏆 AREA OF THE MONTH ??? 🏆",
         value=(
-            "**To be announced**\n"
-            "Congratulations to the team recognized for outstanding "
-            "performance this month!"
+            "**To be announced**\n\n"
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="🟢 Check In",
+        name="🟢 Check In 🟢",
         value=(
             "Start your workday using your assigned Employee ID."
         ),
@@ -994,7 +992,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🔴 Check Out",
+        name="🔴 Check Out 🔴",
         value=(
             "Complete your workday using your assigned Employee ID."
         ),
@@ -1002,7 +1000,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.set_footer(
-        text="Powered by Uncle Max • Wings Store Human Resources"
+        text="Powered by Wings Store Human Resources"
     )
 
     await ctx.send(
