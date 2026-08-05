@@ -432,14 +432,14 @@ async def notificar_incidencia_rrhh(
 class ActividadModal(discord.ui.Modal):
     def __init__(self, id_emp: str):
         super().__init__(
-            title="TODAY'S WORK ACTIVITY",
+            title="REGISTRE LA ACTIVIDAD A REALIZAR EL DIA DE HOY",
             timeout=300,
         )
 
         self.id_emp = id_emp
 
         self.actividad = discord.ui.TextInput(
-            label="Describe today's work activity",
+            label="Describe la actividad de hoy",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Ej.: Diseño de publicaciones, programación, "
@@ -469,9 +469,9 @@ class ActividadModal(discord.ui.Modal):
 
             if success and incidencia:
                 await interaction.followup.send(
-                    "✅ **Your new check-in has been successfully recorded.**\n"
+                    "✅ **Su nueva entrada ha sido registrada correctamente.**\n"
                     f"**{detail}**\n\n"
-                    "⚠️ **Previous Workday Notice:** se detectó que la "
+                    "⚠️ **Advertencia de jornada:** se detectó que la "
                     f"entrada del **{incidencia['fecha']} a las "
                     f"{incidencia['hora']}** no cuenta con una salida registrada "
                     "registrada.⚠️\n\n"
@@ -487,10 +487,10 @@ class ActividadModal(discord.ui.Modal):
 
             elif success:
                 await interaction.followup.send(
-                    "✅🪽 Hello! I'm Uncle Max y ya registré su "
+                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
                     "entrada correctamente.\n"
                     f"**{detail}**\n"
-                    "Have a great day, and thank you for being part of Wings Store!",
+                    "¡Le deseo un excelente día, eres muy importante para nosotros!",
                     ephemeral=True,
                 )
 
@@ -611,7 +611,7 @@ class SalidaSelect(discord.ui.Select):
 
             if success:
                 await interaction.followup.send(
-                    "✅🪽 Hello! I'm Uncle Max y ya registré su "
+                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
                     "salida correctamente.\n"
                     f"**{detail}**\n"
                     "Gracias por todo lo que hiciste el día de hoy. "
@@ -877,15 +877,15 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="OFFICIAL WINGS STORE WORKDAY REGISTRATION",
+        title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
         description=(
-            "Use the buttons below to register your check-in or check-out."
+            "Utilice los botones para registrar su entrada o salida."
         ),
         color=0x5865F2,
     )
 
     embed.add_field(
-        name="Hello! I'm Uncle Max",
+        name="¡Hola! Soy el Tío Max",
         value=(
             "Estoy listo para registrar su Prestacion de Servicios. "
             "Seleccione la opción correspondiente y después su ID."
@@ -894,7 +894,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🟢 Start Workday",
+        name="🟢 Entrada 🟢",
         value=(
             "Registre el inicio de la jornada con su respectivo "
             "ID de empleado correspondiente."
@@ -903,7 +903,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🔴 End Workday",
+        name="🔴 Salida 🔴",
         value=(
             "Registre la terminación de la jornada con su respectivo "
             "ID de empleado correspondiente."
@@ -912,7 +912,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.set_footer(
-        text="Automated system managed by the Human Resources Department."
+        text="Sistema automatizado y controlado por Human Resources Dept."
     )
 
     await ctx.send(embed=embed, view=MainPanelView())
