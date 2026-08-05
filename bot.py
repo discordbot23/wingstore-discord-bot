@@ -22,7 +22,7 @@ GOOGLE_CREDENTIALS_RAW = os.getenv("GOOGLE_CREDENTIALS")
 
 SPREADSHEET_NAME = os.getenv(
     "SPREADSHEET_NAME",
-    "Wings Store People Operations Master",
+    "Wingstore People Operations Master",
 )
 REGISTRO_SHEET_NAME = os.getenv(
     "REGISTRO_SHEET_NAME",
