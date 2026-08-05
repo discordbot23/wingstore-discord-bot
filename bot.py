@@ -912,6 +912,15 @@ async def panel(ctx: commands.Context) -> None:
         inline=False,
     )
 
+    embed.add_field(
+        name="AVISO IMPORTANTE",
+        value=(
+            "El dia de hoy seran enviados los contratos de prestacion de servicios, "
+            "del area de soporte solamente, cualquier duda comuniquese con HR Dept."
+        ),
+        inline=False,
+    )
+
     embed.set_footer(
         text="Sistema automatizado y controlado por HR | Dept."
     )
