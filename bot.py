@@ -879,8 +879,8 @@ async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
         title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
         description=(
-            "Utilice los botones para registrar su entrada o salida."
-            "AREA DEL MES DE AGOSTO: ?"
+            "Utilice los botones para registrar su entrada o salida.\n"
+            "AREA DEL MES DE AGOSTO: ?."
         ),
         color=0x5865F2,
     )
