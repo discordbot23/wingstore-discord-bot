@@ -355,7 +355,7 @@ class ActividadModal(discord.ui.Modal):
         self.id_emp = id_emp
 
         self.actividad = discord.ui.TextInput(
-            label="Describe la actividad a realizar el día de hoy",
+            label="Describe la actividad de hoy",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Ej.: Diseño de publicaciones, programación, "
