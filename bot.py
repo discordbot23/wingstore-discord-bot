@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import time
 from datetime import datetime
 from typing import Callable, TypeVar
 from zoneinfo import ZoneInfo
@@ -14,7 +15,7 @@ from google.oauth2.service_account import Credentials
 
 
 # ============================================================
-# CONFIGURACIÓN
+# CONFIGURATION
 # ============================================================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -24,16 +25,16 @@ SPREADSHEET_NAME = os.getenv(
     "SPREADSHEET_NAME",
     "Wingstore People Operations Master",
 )
-REGISTRO_SHEET_NAME = os.getenv(
+RECORDS_WORKSHEET_NAME = os.getenv(
     "REGISTRO_SHEET_NAME",
     "Respuestas de formulario 1",
 )
-EMPLEADOS_SHEET_NAME = os.getenv(
+EMPLOYEES_WORKSHEET_NAME = os.getenv(
     "EMPLEADOS_SHEET_NAME",
     "EMPLEADOS Y CONTRATOS",
 )
-BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 
+BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
 IDS_REFRESH_MINUTES = int(os.getenv("IDS_REFRESH_MINUTES", "10"))
 HR_CHANNEL_ID = int(os.getenv("HR_CHANNEL_ID", "0"))
@@ -44,28 +45,30 @@ SCOPES = [
 ]
 
 if not DISCORD_TOKEN:
-    raise RuntimeError("Falta la variable de entorno DISCORD_TOKEN.")
+    raise RuntimeError("The DISCORD_TOKEN environment variable is missing.")
 
 if not GOOGLE_CREDENTIALS_RAW:
-    raise RuntimeError("Falta la variable de entorno GOOGLE_CREDENTIALS.")
+    raise RuntimeError(
+        "The GOOGLE_CREDENTIALS environment variable is missing."
+    )
 
 try:
     SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_CREDENTIALS_RAW)
 except json.JSONDecodeError as exc:
     raise RuntimeError(
-        "GOOGLE_CREDENTIALS no contiene un JSON válido."
+        "GOOGLE_CREDENTIALS does not contain valid JSON."
     ) from exc
 
 try:
     TIMEZONE = ZoneInfo(BOT_TIMEZONE)
 except Exception as exc:
     raise RuntimeError(
-        f"La zona horaria BOT_TIMEZONE no es válida: {BOT_TIMEZONE}"
+        f"The BOT_TIMEZONE value is invalid: {BOT_TIMEZONE}"
     ) from exc
 
 
 # ============================================================
-# LOGS
+# LOGGING
 # ============================================================
 
 logging.basicConfig(
@@ -73,7 +76,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-logger = logging.getLogger("tio_max")
+logger = logging.getLogger("uncle_max")
 
 
 # ============================================================
@@ -82,21 +85,50 @@ logger = logging.getLogger("tio_max")
 
 google_client: gspread.Client | None = None
 spreadsheet: gspread.Spreadsheet | None = None
-sheet_registro: gspread.Worksheet | None = None
-sheet_empleados: gspread.Worksheet | None = None
+records_worksheet: gspread.Worksheet | None = None
+employees_worksheet: gspread.Worksheet | None = None
 
-IDS_CACHE: list[str] = []
+EMPLOYEE_IDS_CACHE: list[str] = []
 
-# Serializa las operaciones administrativas sobre la hoja.
-# Evita que dos interacciones del mismo proceso modifiquen la hoja a la vez.
-SHEETS_ASYNC_LOCK = asyncio.Lock()
+# Prevents two interactions in this process from editing the worksheet
+# at exactly the same time.
+SHEETS_LOCK = asyncio.Lock()
 
 T = TypeVar("T")
 
 
-def conectar_google_sync() -> None:
-    """Crea nuevamente la conexión y obtiene las hojas necesarias."""
-    global google_client, spreadsheet, sheet_registro, sheet_empleados
+def format_us_date(date_value: str) -> str:
+    """Converts YYYY-MM-DD into a natural U.S. date when possible."""
+    try:
+        parsed = datetime.strptime(date_value, "%Y-%m-%d")
+        return f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}"
+    except (TypeError, ValueError):
+        return date_value or "date unavailable"
+
+
+def format_us_time(time_value: str) -> str:
+    """Converts 24-hour HH:MM into U.S. 12-hour time when possible."""
+    try:
+        parsed = datetime.strptime(time_value, "%H:%M")
+        return parsed.strftime("%I:%M %p").lstrip("0")
+    except (TypeError, ValueError):
+        return time_value or "time unavailable"
+
+
+def current_us_date_time() -> tuple[str, str]:
+    now = datetime.now(TIMEZONE)
+    return (
+        f"{now.strftime('%B')} {now.day}, {now.year}",
+        now.strftime("%I:%M %p").lstrip("0"),
+    )
+
+
+def connect_google_sync() -> None:
+    """Creates a fresh Google connection and loads the required worksheets."""
+    global google_client
+    global spreadsheet
+    global records_worksheet
+    global employees_worksheet
 
     credentials = Credentials.from_service_account_info(
         SERVICE_ACCOUNT_INFO,
@@ -105,71 +137,69 @@ def conectar_google_sync() -> None:
 
     google_client = gspread.authorize(credentials)
     spreadsheet = google_client.open(SPREADSHEET_NAME)
-    sheet_registro = spreadsheet.worksheet(REGISTRO_SHEET_NAME)
-    sheet_empleados = spreadsheet.worksheet(EMPLEADOS_SHEET_NAME)
+    records_worksheet = spreadsheet.worksheet(RECORDS_WORKSHEET_NAME)
+    employees_worksheet = spreadsheet.worksheet(EMPLOYEES_WORKSHEET_NAME)
 
-    logger.info("Conexión con Google Sheets establecida.")
-
-
-def asegurar_google_sync() -> None:
-    if sheet_registro is None or sheet_empleados is None:
-        conectar_google_sync()
+    logger.info("Connection to Google Sheets established.")
 
 
-def ejecutar_google_con_reintentos_sync(
+def ensure_google_sync() -> None:
+    if records_worksheet is None or employees_worksheet is None:
+        connect_google_sync()
+
+
+def run_google_with_retries_sync(
     operation_name: str,
     operation: Callable[[], T],
 ) -> T:
     """
-    Ejecuta una operación de Google con reintentos y reconexión.
+    Runs a Google Sheets operation with retries and reconnection.
 
-    Tras agotar los intentos, vuelve a lanzar el último error para que
-    Discord muestre un mensaje real de fallo en vez de confirmar algo
-    que no quedó registrado.
+    If every attempt fails, the final exception is raised so the bot never
+    displays a false success confirmation.
     """
-    global google_client, spreadsheet, sheet_registro, sheet_empleados
+    global google_client
+    global spreadsheet
+    global records_worksheet
+    global employees_worksheet
 
     last_error: Exception | None = None
 
     for attempt in range(1, MAX_GOOGLE_RETRIES + 1):
         try:
-            asegurar_google_sync()
+            ensure_google_sync()
             return operation()
 
         except Exception as exc:
             last_error = exc
 
             logger.exception(
-                "Falló '%s' en el intento %s/%s.",
+                "'%s' failed on attempt %s/%s.",
                 operation_name,
                 attempt,
                 MAX_GOOGLE_RETRIES,
             )
 
-            # Fuerza una conexión nueva en el siguiente intento.
             google_client = None
             spreadsheet = None
-            sheet_registro = None
-            sheet_empleados = None
+            records_worksheet = None
+            employees_worksheet = None
 
             if attempt < MAX_GOOGLE_RETRIES:
-                # Espera exponencial con una pequeña variación.
                 delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
-                import time
                 time.sleep(delay)
 
     assert last_error is not None
     raise last_error
 
 
-def cargar_ids_sync() -> list[str]:
+def load_employee_ids_sync() -> list[str]:
     def operation() -> list[str]:
-        assert sheet_empleados is not None
+        assert employees_worksheet is not None
 
-        data = sheet_empleados.get("A4:A")
+        data = employees_worksheet.get("A4:A")
 
-        # Elimina vacíos y duplicados conservando el orden.
-        ids = list(
+        return list(
             dict.fromkeys(
                 str(row[0]).strip()
                 for row in data
@@ -177,187 +207,198 @@ def cargar_ids_sync() -> list[str]:
             )
         )
 
-        return ids
-
-    return ejecutar_google_con_reintentos_sync(
-        "cargar IDs de empleados",
+    return run_google_with_retries_sync(
+        "load employee IDs",
         operation,
     )
 
 
-def obtener_registros_sync() -> list[list[str]]:
-    def operation() -> list[list[str]]:
-        assert sheet_registro is not None
-        return sheet_registro.get("A:F")
-
-    return ejecutar_google_con_reintentos_sync(
-        "consultar registros",
-        operation,
-    )
-
-
-def buscar_entrada_abierta(
-    registros: list[list[str]],
-    id_emp: str,
+def find_open_workday(
+    records: list[list[str]],
+    employee_id: str,
 ) -> tuple[int, list[str]] | None:
     """
-    Devuelve (número_de_fila, fila) de la entrada abierta más reciente.
+    Returns the most recent open workday for the selected employee.
 
-    Se considera abierta cuando:
-    - Columna B = ID solicitado.
-    - Columna C contiene hora de entrada.
-    - Columna D está vacía.
+    A workday is open when:
+    - Column B matches the employee ID.
+    - Column C contains a check-in time.
+    - Column D does not contain a check-out time.
     """
-    for row_number in range(len(registros), 1, -1):
-        row = registros[row_number - 1]
+    for row_number in range(len(records), 1, -1):
+        row = records[row_number - 1]
         normalized = row + [""] * max(0, 6 - len(row))
 
-        employee_id = normalized[1].strip()
-        entry_time = normalized[2].strip()
-        exit_time = normalized[3].strip()
+        recorded_employee_id = normalized[1].strip()
+        check_in_time = normalized[2].strip()
+        check_out_time = normalized[3].strip()
 
-        if employee_id == id_emp and entry_time and not exit_time:
+        if (
+            recorded_employee_id == employee_id
+            and check_in_time
+            and not check_out_time
+        ):
             return row_number, normalized
 
     return None
 
 
-def registrar_entrada_sync(
-    id_emp: str,
-    actividad: str,
-    usuario: str,
-) -> tuple[bool, str, dict | None]:
+def record_check_in_sync(
+    employee_id: str,
+    activity: str,
+    discord_user: str,
+) -> tuple[str, dict | None]:
     """
-    Registra una nueva entrada incluso si existe una jornada anterior abierta.
+    Records a new check-in.
 
-    Cuando detecta una jornada sin salida:
-    - conserva el registro anterior sin modificarlo;
-    - registra normalmente la nueva entrada;
-    - devuelve los datos de la incidencia para advertir al colaborador
-      y notificar al canal de Recursos Humanos.
+    If a previous workday is still open, the new check-in is still recorded.
+    The previous row remains unchanged and is returned as an HR incident.
     """
-    def operation() -> tuple[bool, str, dict | None]:
-        assert sheet_registro is not None
+    def operation() -> tuple[str, dict | None]:
+        assert records_worksheet is not None
 
-        registros = sheet_registro.get("A:F")
-        abierta = buscar_entrada_abierta(registros, id_emp)
+        records = records_worksheet.get("A:F")
+        open_workday = find_open_workday(records, employee_id)
 
-        incidencia = None
+        incident = None
 
-        if abierta:
-            row_number, row = abierta
-            incidencia = {
-                "fila": row_number,
-                "fecha": row[0] or "fecha no disponible",
-                "hora": row[2] or "hora no disponible",
-                "id_emp": id_emp,
-                "usuario": usuario,
+        if open_workday:
+            row_number, row = open_workday
+
+            incident = {
+                "employee_id": employee_id,
+                "discord_user": discord_user,
+                "row_number": row_number,
+                "previous_date_raw": row[0] or "date unavailable",
+                "previous_time_raw": row[2] or "time unavailable",
+                "previous_date": format_us_date(row[0]),
+                "previous_time": format_us_time(row[2]),
             }
 
-        ahora = datetime.now(TIMEZONE)
-        fecha = ahora.strftime("%Y-%m-%d")
-        hora = ahora.strftime("%H:%M")
+        now = datetime.now(TIMEZONE)
+        sheet_date = now.strftime("%Y-%m-%d")
+        sheet_time = now.strftime("%H:%M")
+        display_time = now.strftime("%I:%M %p").lstrip("0")
 
-        sheet_registro.append_row(
-            [fecha, id_emp, hora, "", actividad.strip(), usuario],
+        records_worksheet.append_row(
+            [
+                sheet_date,
+                employee_id,
+                sheet_time,
+                "",
+                activity.strip(),
+                discord_user,
+            ],
             value_input_option="USER_ENTERED",
         )
 
-        return True, f"Entrada registrada a las {hora}.", incidencia
+        return display_time, incident
 
-    return ejecutar_google_con_reintentos_sync(
-        f"registrar entrada de {id_emp}",
+    return run_google_with_retries_sync(
+        f"record check-in for {employee_id}",
         operation,
     )
 
 
-def registrar_salida_sync(
-    id_emp: str,
-    usuario: str,
-) -> tuple[bool, str]:
-    del usuario  # Reservado para futuras auditorías.
+def record_check_out_sync(
+    employee_id: str,
+    discord_user: str,
+) -> tuple[bool, dict]:
+    del discord_user  # Reserved for future audit features.
 
-    def operation() -> tuple[bool, str]:
-        assert sheet_registro is not None
+    def operation() -> tuple[bool, dict]:
+        assert records_worksheet is not None
 
-        registros = sheet_registro.get("A:F")
-        abierta = buscar_entrada_abierta(registros, id_emp)
+        records = records_worksheet.get("A:F")
+        open_workday = find_open_workday(records, employee_id)
 
-        if not abierta:
-            return (
-                False,
-                f"No encontré una jornada abierta para {id_emp}.",
-            )
+        if not open_workday:
+            return False, {
+                "employee_id": employee_id,
+                "message": (
+                    f"No open workday was found for **{employee_id}**. "
+                    "Please verify the Employee ID or contact Human Resources."
+                ),
+            }
 
-        row_number, row = abierta
-        ahora = datetime.now(TIMEZONE)
-        hora = ahora.strftime("%H:%M")
+        row_number, row = open_workday
+        now = datetime.now(TIMEZONE)
+        sheet_time = now.strftime("%H:%M")
+        display_time = now.strftime("%I:%M %p").lstrip("0")
 
-        sheet_registro.update(
+        records_worksheet.update(
             range_name=f"D{row_number}",
-            values=[[hora]],
+            values=[[sheet_time]],
             value_input_option="USER_ENTERED",
         )
 
-        fecha_entrada = row[0] or "fecha no disponible"
-        hora_entrada = row[2] or "hora no disponible"
+        return True, {
+            "employee_id": employee_id,
+            "check_out_time": display_time,
+            "check_in_date": format_us_date(row[0]),
+            "check_in_time": format_us_time(row[2]),
+        }
 
-        return (
-            True,
-            "Salida registrada a las "
-            f"{hora}. Entrada original: {fecha_entrada} {hora_entrada}.",
-        )
-
-    return ejecutar_google_con_reintentos_sync(
-        f"registrar salida de {id_emp}",
+    return run_google_with_retries_sync(
+        f"record check-out for {employee_id}",
         operation,
     )
 
 
-async def actualizar_cache_ids() -> bool:
-    global IDS_CACHE
+async def refresh_employee_ids_cache() -> bool:
+    global EMPLOYEE_IDS_CACHE
 
     try:
-        ids = await asyncio.to_thread(cargar_ids_sync)
+        ids = await asyncio.to_thread(load_employee_ids_sync)
 
         if not ids:
             logger.warning(
-                "Google Sheets respondió, pero no devolvió IDs en A4:A."
+                "Google Sheets responded, but no employee IDs were found "
+                "in A4:A."
             )
             return False
 
-        IDS_CACHE = ids
-        logger.info("Caché actualizada: %s IDs cargados.", len(IDS_CACHE))
+        EMPLOYEE_IDS_CACHE = ids
+        logger.info(
+            "Employee ID cache updated: %s IDs loaded.",
+            len(EMPLOYEE_IDS_CACHE),
+        )
         return True
 
     except Exception:
-        logger.exception("No fue posible actualizar la caché de IDs.")
+        logger.exception("The employee ID cache could not be updated.")
         return False
 
 
-def obtener_grupo_ids(group_number: int) -> list[str]:
+def get_employee_id_group(group_number: int) -> list[str]:
     if group_number == 1:
-        return IDS_CACHE[:25]
+        return EMPLOYEE_IDS_CACHE[:25]
 
     if group_number == 2:
-        return IDS_CACHE[25:50]
+        return EMPLOYEE_IDS_CACHE[25:50]
 
     return []
 
 
-async def notificar_incidencia_rrhh(
+# ============================================================
+# HUMAN RESOURCES NOTIFICATIONS
+# ============================================================
+
+async def notify_human_resources(
     interaction: discord.Interaction,
-    incidencia: dict,
+    incident: dict,
+    new_check_in_time: str,
 ) -> None:
     """
-    Envía la incidencia al canal privado de Recursos Humanos.
+    Sends a workday incident notification to the private HR Discord channel.
 
-    Configure en Railway:
-    HR_CHANNEL_ID=ID_NUMERICO_DEL_CANAL
+    Railway variable required:
+    HR_CHANNEL_ID=NUMERIC_DISCORD_CHANNEL_ID
     """
     if not HR_CHANNEL_ID:
         logger.warning(
-            "Se detectó una incidencia, pero HR_CHANNEL_ID no está configurado."
+            "A workday incident was detected, but HR_CHANNEL_ID is not "
+            "configured."
         )
         return
 
@@ -368,143 +409,158 @@ async def notificar_incidencia_rrhh(
             channel = await bot.fetch_channel(HR_CHANNEL_ID)
         except Exception:
             logger.exception(
-                "No fue posible localizar el canal de RRHH con ID %s.",
+                "The Human Resources channel with ID %s could not be found.",
                 HR_CHANNEL_ID,
             )
             return
 
+    today_date, _ = current_us_date_time()
+
     embed = discord.Embed(
-        title="🚨 Incidencia de jornada detectada",
+        title="🚨 Workday Incident",
         description=(
-            "Se registró una nueva entrada aunque existía una "
-            "jornada anterior sin salida."
+            "A new check-in was recorded while a previous workday "
+            "remained open."
         ),
         color=0xF59E0B,
         timestamp=datetime.now(TIMEZONE),
     )
 
     embed.add_field(
-        name="Empleado",
-        value=incidencia["id_emp"],
+        name="Employee ID",
+        value=incident["employee_id"],
         inline=True,
     )
     embed.add_field(
-        name="Usuario de Discord",
+        name="Discord User",
         value=str(interaction.user),
         inline=True,
     )
     embed.add_field(
-        name="Entrada anterior sin cerrar",
-        value=f'{incidencia["fecha"]} a las {incidencia["hora"]}',
+        name="Previous Open Workday",
+        value=(
+            f"{incident['previous_date']}\n"
+            f"{incident['previous_time']}"
+        ),
         inline=False,
     )
     embed.add_field(
-        name="Fila en Google Sheets",
-        value=str(incidencia["fila"]),
+        name="New Check-In",
+        value=f"{today_date}\n{new_check_in_time}",
         inline=True,
     )
     embed.add_field(
-        name="Nueva entrada",
-        value=datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M"),
+        name="Google Sheets Row",
+        value=str(incident["row_number"]),
         inline=True,
     )
+    embed.add_field(
+        name="Status",
+        value="Pending HR Review",
+        inline=False,
+    )
     embed.set_footer(
-        text="Tío Max • Wings Store Human Resources"
+        text="Uncle Max • Wings Store Human Resources"
     )
 
     try:
         await channel.send(embed=embed)
         logger.info(
-            "Incidencia enviada a RRHH | ID=%s | Fila=%s",
-            incidencia["id_emp"],
-            incidencia["fila"],
+            "Workday incident sent to Human Resources | Employee=%s | Row=%s",
+            incident["employee_id"],
+            incident["row_number"],
         )
     except Exception:
         logger.exception(
-            "No fue posible enviar la incidencia al canal de RRHH."
+            "The incident notification could not be sent to Human Resources."
         )
 
 
 # ============================================================
-# MODAL DE ACTIVIDAD
+# TODAY'S WORK ACTIVITY MODAL
 # ============================================================
 
-class ActividadModal(discord.ui.Modal):
-    def __init__(self, id_emp: str):
+class WorkActivityModal(discord.ui.Modal):
+    def __init__(self, employee_id: str):
         super().__init__(
-            title="REGISTRE LA ACTIVIDAD DE HOY",
+            title="TODAY'S WORK ACTIVITY",
             timeout=300,
         )
 
-        self.id_emp = id_emp
+        self.employee_id = employee_id
 
-        self.actividad = discord.ui.TextInput(
-            label="Describe la actividad de hoy",
+        self.activity = discord.ui.TextInput(
+            label="What will you be working on today?",
             style=discord.TextStyle.paragraph,
             placeholder=(
-                "Ej.: Diseño de publicaciones, programación, "
-                "atención a clientes..."
+                "Example: Customer Support, Graphic Design, Recruitment..."
             ),
             required=True,
             max_length=300,
         )
 
-        self.add_item(self.actividad)
+        self.add_item(self.activity)
 
     async def on_submit(
         self,
         interaction: discord.Interaction,
     ) -> None:
-        # Confirma inmediatamente a Discord que la operación está en proceso.
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
 
         try:
-            async with SHEETS_ASYNC_LOCK:
-                success, detail, incidencia = await asyncio.to_thread(
-                    registrar_entrada_sync,
-                    self.id_emp,
-                    str(self.actividad.value),
+            async with SHEETS_LOCK:
+                check_in_time, incident = await asyncio.to_thread(
+                    record_check_in_sync,
+                    self.employee_id,
+                    str(self.activity.value),
                     str(interaction.user),
                 )
 
-            if success and incidencia:
+            if incident:
                 await interaction.followup.send(
-                    "✅ **Su entrada fue registrada correctamente.**✅\n"
-                    f"**{detail}**\n\n"
-                    "⚠️**Advertencia de jornada**⚠️ se detectó que la "
-                    f"entrada del **{incidencia['fecha']} a las "
-                    f"{incidencia['hora']}** no cuenta con una salida "
-                    "registrada.\n\n"
-                    "Recursos Humanos fue notificado para revisar la falta administrativa. "
-                    "Puede continuar con normalidad. ",
+                    "✅ **You're all set!**\n\n"
+                    "Your new workday has started successfully.\n"
+                    f"**Check-In Time:** {check_in_time}\n\n"
+                    "⚠️ **Open Workday Notice**\n"
+                    "We noticed that your previous check-in from "
+                    f"**{incident['previous_date']} at "
+                    f"{incident['previous_time']}** does not have a "
+                    "corresponding check-out.\n\n"
+                    "You may continue working as usual. Human Resources "
+                    "has already been notified and will review the incident.",
                     ephemeral=True,
                 )
 
-                await notificar_incidencia_rrhh(
+                await notify_human_resources(
                     interaction,
-                    incidencia,
+                    incident,
+                    check_in_time,
                 )
 
-            elif success:
+            else:
                 await interaction.followup.send(
-                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
-                    "entrada correctamente.\n"
-                    f"**{detail}**\n"
-                    "¡Te deseo una excelente jornada y mucho éxito!",
+                    "✅ **You're all set!**\n\n"
+                    "Your workday has started successfully.\n"
+                    f"**Check-In Time:** {check_in_time}\n\n"
+                    "Have an amazing day, and thank you for being part "
+                    "of Wings Store!",
                     ephemeral=True,
                 )
 
         except Exception:
             logger.exception(
-                "Error definitivo registrando entrada | ID=%s | Usuario=%s",
-                self.id_emp,
+                "Final check-in error | Employee=%s | User=%s",
+                self.employee_id,
                 interaction.user,
             )
 
             await interaction.followup.send(
-                "❌ No pude registrar su entrada después de varios intentos. "
-                "No se mostró una confirmación falsa. Inténtelo nuevamente "
-                "en un momento o comuníquese con Recursos Humanos.",
+                "❌ **We couldn't complete your check-in.**\n\n"
+                "Please try again in a few moments. If the issue continues, "
+                "contact the Human Resources Department.",
                 ephemeral=True,
             )
 
@@ -514,17 +570,20 @@ class ActividadModal(discord.ui.Modal):
         error: Exception,
     ) -> None:
         logger.exception(
-            "Error no controlado en ActividadModal.",
+            "Unhandled error in WorkActivityModal.",
             exc_info=error,
         )
 
         message = (
-            "❌ Ocurrió un error inesperado. Inténtelo nuevamente o "
-            "comuníquese con Recursos Humanos."
+            "❌ An unexpected error occurred. Please try again or contact "
+            "the Human Resources Department."
         )
 
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.followup.send(
+                message,
+                ephemeral=True,
+            )
         else:
             await interaction.response.send_message(
                 message,
@@ -533,24 +592,27 @@ class ActividadModal(discord.ui.Modal):
 
 
 # ============================================================
-# SELECTORES
+# EMPLOYEE ID SELECT MENUS
 # ============================================================
 
-class EntradaSelect(discord.ui.Select):
+class CheckInSelect(discord.ui.Select):
     def __init__(self, group_number: int):
-        ids = obtener_grupo_ids(group_number)
+        employee_ids = get_employee_id_group(group_number)
 
         options = [
-            discord.SelectOption(label=employee_id, value=employee_id)
-            for employee_id in ids
+            discord.SelectOption(
+                label=employee_id,
+                value=employee_id,
+            )
+            for employee_id in employee_ids
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (grupo 1)"
-            custom_id = "tio_max:entrada_select:1"
+            placeholder = "Select your Employee ID (WS-001–WS-027)"
+            custom_id = "uncle_max:check_in_select:1"
         else:
-            placeholder = "Seleccione su ID (grupo 2)"
-            custom_id = "tio_max:entrada_select:2"
+            placeholder = "Select your Employee ID (WS-028–WS-050)"
+            custom_id = "uncle_max:check_in_select:2"
 
         super().__init__(
             placeholder=placeholder,
@@ -565,25 +627,28 @@ class EntradaSelect(discord.ui.Select):
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.send_modal(
-            ActividadModal(self.values[0])
+            WorkActivityModal(self.values[0])
         )
 
 
-class SalidaSelect(discord.ui.Select):
+class CheckOutSelect(discord.ui.Select):
     def __init__(self, group_number: int):
-        ids = obtener_grupo_ids(group_number)
+        employee_ids = get_employee_id_group(group_number)
 
         options = [
-            discord.SelectOption(label=employee_id, value=employee_id)
-            for employee_id in ids
+            discord.SelectOption(
+                label=employee_id,
+                value=employee_id,
+            )
+            for employee_id in employee_ids
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (grupo 1)"
-            custom_id = "tio_max:salida_select:1"
+            placeholder = "Select your Employee ID (WS-001–WS-027)"
+            custom_id = "uncle_max:check_out_select:1"
         else:
-            placeholder = "Seleccione su ID (grupo 2)"
-            custom_id = "tio_max:salida_select:2"
+            placeholder = "Select your Employee ID (WS-028–WS-050)"
+            custom_id = "uncle_max:check_out_select:2"
 
         super().__init__(
             placeholder=placeholder,
@@ -597,200 +662,210 @@ class SalidaSelect(discord.ui.Select):
         self,
         interaction: discord.Interaction,
     ) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
 
-        id_emp = self.values[0]
+        employee_id = self.values[0]
 
         try:
-            async with SHEETS_ASYNC_LOCK:
-                success, detail = await asyncio.to_thread(
-                    registrar_salida_sync,
-                    id_emp,
+            async with SHEETS_LOCK:
+                success, result = await asyncio.to_thread(
+                    record_check_out_sync,
+                    employee_id,
                     str(interaction.user),
                 )
 
             if success:
                 await interaction.followup.send(
-                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
-                    "salida correctamente.\n"
-                    f"**{detail}**\n"
-                    "Gracias por acompañarnos el día de hoy. "
-                    "¡Que tengas un excelente descanso!",
+                    "✅ **Workday completed!**\n\n"
+                    "Your check-out has been successfully recorded.\n"
+                    f"**Check-Out Time:** {result['check_out_time']}\n"
+                    "**Original Check-In:** "
+                    f"{result['check_in_date']} at "
+                    f"{result['check_in_time']}\n\n"
+                    "Thank you for your hard work today. Have a wonderful "
+                    "rest of your day!",
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
-                    f"⚠️ **No se registró la salida.**\n{detail}",
+                    "⚠️ **Unable to record your check-out.**\n\n"
+                    f"{result['message']}",
                     ephemeral=True,
                 )
 
         except Exception:
             logger.exception(
-                "Error definitivo registrando salida | ID=%s | Usuario=%s",
-                id_emp,
+                "Final check-out error | Employee=%s | User=%s",
+                employee_id,
                 interaction.user,
             )
 
             await interaction.followup.send(
-                "❌ No pude registrar su salida después de varios intentos. "
-                "No se mostró una confirmación falsa. Inténtelo nuevamente "
-                "en un momento o comuníquese con Recursos Humanos.",
+                "❌ **We couldn't complete your check-out.**\n\n"
+                "Please try again in a few moments. If the issue continues, "
+                "contact the Human Resources Department.",
                 ephemeral=True,
             )
 
 
-class EntradaSelectView(discord.ui.View):
+class CheckInSelectView(discord.ui.View):
     def __init__(self, group_number: int):
         super().__init__(timeout=180)
-        self.add_item(EntradaSelect(group_number))
+        self.add_item(CheckInSelect(group_number))
 
 
-class SalidaSelectView(discord.ui.View):
+class CheckOutSelectView(discord.ui.View):
     def __init__(self, group_number: int):
         super().__init__(timeout=180)
-        self.add_item(SalidaSelect(group_number))
+        self.add_item(CheckOutSelect(group_number))
 
 
 # ============================================================
-# PANEL PRINCIPAL PERSISTENTE
+# PERSISTENT WORKDAY PORTAL
 # ============================================================
 
-class MainPanelView(discord.ui.View):
+class WorkdayPortalView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _ensure_ids(
+    async def ensure_employee_ids(
         self,
         interaction: discord.Interaction,
     ) -> bool:
-        if IDS_CACHE:
+        if EMPLOYEE_IDS_CACHE:
             return True
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
 
-        updated = await actualizar_cache_ids()
+        updated = await refresh_employee_ids_cache()
 
         if not updated:
             await interaction.followup.send(
-                "❌ No pude cargar la lista de IDs en este momento. "
-                "Inténtelo nuevamente en unos segundos.",
+                "❌ We couldn't load the Employee ID list right now. "
+                "Please try again in a few seconds.",
                 ephemeral=True,
             )
             return False
 
         return True
 
-    async def _send_entry_menu(
+    async def send_check_in_menu(
         self,
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not IDS_CACHE:
-            if not await self._ensure_ids(interaction):
+        if not EMPLOYEE_IDS_CACHE:
+            if not await self.ensure_employee_ids(interaction):
                 return
 
-            response_sender = interaction.followup.send
+            send_response = interaction.followup.send
         else:
-            response_sender = interaction.response.send_message
+            send_response = interaction.response.send_message
 
-        ids = obtener_grupo_ids(group_number)
+        employee_ids = get_employee_id_group(group_number)
 
-        if not ids:
-            await response_sender(
-                "⚠️ No hay IDs disponibles en este grupo.",
+        if not employee_ids:
+            await send_response(
+                "⚠️ No Employee IDs are currently available in this group.",
                 ephemeral=True,
             )
             return
 
-        await response_sender(
-            "Seleccione su ID:",
-            view=EntradaSelectView(group_number),
+        await send_response(
+            "**Select your Employee ID:**",
+            view=CheckInSelectView(group_number),
             ephemeral=True,
         )
 
-    async def _send_exit_menu(
+    async def send_check_out_menu(
         self,
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not IDS_CACHE:
-            if not await self._ensure_ids(interaction):
+        if not EMPLOYEE_IDS_CACHE:
+            if not await self.ensure_employee_ids(interaction):
                 return
 
-            response_sender = interaction.followup.send
+            send_response = interaction.followup.send
         else:
-            response_sender = interaction.response.send_message
+            send_response = interaction.response.send_message
 
-        ids = obtener_grupo_ids(group_number)
+        employee_ids = get_employee_id_group(group_number)
 
-        if not ids:
-            await response_sender(
-                "⚠️ No hay IDs disponibles en este grupo.",
+        if not employee_ids:
+            await send_response(
+                "⚠️ No Employee IDs are currently available in this group.",
                 ephemeral=True,
             )
             return
 
-        await response_sender(
-            "Seleccione su ID:",
-            view=SalidaSelectView(group_number),
+        await send_response(
+            "**Select your Employee ID:**",
+            view=CheckOutSelectView(group_number),
             ephemeral=True,
         )
 
     @discord.ui.button(
-        label="Entrada WS-001 a WS-027",
+        label="Check In (WS-001–027)",
         style=discord.ButtonStyle.success,
-        custom_id="tio_max:panel:entrada:1",
+        custom_id="uncle_max:portal:check_in:1",
         row=0,
     )
-    async def entrada_grupo_1(
+    async def check_in_group_one(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
         del button
-        await self._send_entry_menu(interaction, 1)
+        await self.send_check_in_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Entrada WS-028 a WS-050",
+        label="Check In (WS-028–050)",
         style=discord.ButtonStyle.success,
-        custom_id="tio_max:panel:entrada:2",
+        custom_id="uncle_max:portal:check_in:2",
         row=0,
     )
-    async def entrada_grupo_2(
+    async def check_in_group_two(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
         del button
-        await self._send_entry_menu(interaction, 2)
+        await self.send_check_in_menu(interaction, 2)
 
     @discord.ui.button(
-        label="Salida WS-001 a WS-027",
+        label="Check Out (WS-001–027)",
         style=discord.ButtonStyle.danger,
-        custom_id="tio_max:panel:salida:1",
+        custom_id="uncle_max:portal:check_out:1",
         row=1,
     )
-    async def salida_grupo_1(
+    async def check_out_group_one(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
         del button
-        await self._send_exit_menu(interaction, 1)
+        await self.send_check_out_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Salida WS-028 a WS-050",
+        label="Check Out (WS-028–050)",
         style=discord.ButtonStyle.danger,
-        custom_id="tio_max:panel:salida:2",
+        custom_id="uncle_max:portal:check_out:2",
         row=1,
     )
-    async def salida_grupo_2(
+    async def check_out_group_two(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
         del button
-        await self._send_exit_menu(interaction, 2)
+        await self.send_check_out_menu(interaction, 2)
 
     async def on_error(
         self,
@@ -799,18 +874,20 @@ class MainPanelView(discord.ui.View):
         item: discord.ui.Item,
     ) -> None:
         logger.exception(
-            "Error en MainPanelView | Item=%s",
+            "Error in WorkdayPortalView | Item=%s",
             item,
             exc_info=error,
         )
 
         message = (
-            "❌ Ocurrió un error procesando la opción. "
-            "Inténtelo nuevamente."
+            "❌ We couldn't process that request. Please try again."
         )
 
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.followup.send(
+                message,
+                ephemeral=True,
+            )
         else:
             await interaction.response.send_message(
                 message,
@@ -826,18 +903,17 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 
-class TioMaxBot(commands.Bot):
+class UncleMaxBot(commands.Bot):
     async def setup_hook(self) -> None:
-        # Registra el panel persistente antes de conectarse completamente.
-        self.add_view(MainPanelView())
+        self.add_view(WorkdayPortalView())
 
-        await actualizar_cache_ids()
+        await refresh_employee_ids_cache()
 
-        if not refrescar_ids.is_running():
-            refrescar_ids.start()
+        if not refresh_ids_task.is_running():
+            refresh_ids_task.start()
 
 
-bot = TioMaxBot(
+bot = UncleMaxBot(
     command_prefix="!",
     intents=intents,
     help_command=None,
@@ -845,87 +921,94 @@ bot = TioMaxBot(
 
 
 @tasks.loop(minutes=IDS_REFRESH_MINUTES)
-async def refrescar_ids() -> None:
-    await actualizar_cache_ids()
+async def refresh_ids_task() -> None:
+    await refresh_employee_ids_cache()
 
 
-@refrescar_ids.before_loop
-async def before_refrescar_ids() -> None:
+@refresh_ids_task.before_loop
+async def before_refresh_ids_task() -> None:
     await bot.wait_until_ready()
 
 
 @bot.event
 async def on_ready() -> None:
     logger.info(
-        "Tío Max conectado como %s | ID=%s",
+        "Uncle Max connected as %s | ID=%s",
         bot.user,
-        bot.user.id if bot.user else "desconocido",
+        bot.user.id if bot.user else "unknown",
     )
 
 
 @bot.event
 async def on_disconnect() -> None:
-    logger.warning("Tío Max perdió temporalmente la conexión con Discord.")
+    logger.warning(
+        "Uncle Max temporarily lost connection to Discord."
+    )
 
 
 @bot.event
 async def on_resumed() -> None:
-    logger.info("Tío Max reanudó la sesión con Discord.")
+    logger.info(
+        "Uncle Max resumed the Discord session."
+    )
 
 
 @bot.command(name="panel")
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
+        title="WINGS STORE WORKDAY PORTAL",
         description=(
-            "Utilice los botones para registrar su entrada o salida.\n\n"
-            "🏆FELICIDADES AL ÁREA DEL MÉS DE AGOSTO: ?????🏆.\n"
+            "Welcome to the official Wings Store workday system.\n"
+            "Use the buttons below to check in or check out."
         ),
         color=0x5865F2,
     )
 
     embed.add_field(
-        name="¡Hola! Soy el Tío Max",
+        name="👋 Welcome! I'm Uncle Max",
         value=(
-            "Estoy listo para registrar su jornada. "
-            "Seleccione la opción correspondiente y después su ID."
+            "I'm your virtual Workday Assistant, here to help you manage "
+            "your daily check-ins and check-outs.\n\n"
+            "Please select an option below to get started."
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="🟢 Entrada 🟢",
+        name="🏆 AREA OF THE MONTH",
         value=(
-            "Registre el inicio de la jornada con su respectivo "
-            "ID de empleado."
+            "**To be announced**\n"
+            "Congratulations to the team recognized for outstanding "
+            "performance this month!"
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="🔴 Salida 🔴",
+        name="🟢 Check In",
         value=(
-            "Registre la terminación de la jornada con su respectivo "
-            "ID de empleado."
+            "Start your workday using your assigned Employee ID."
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="AVISO IMPORTANTE",
+        name="🔴 Check Out",
         value=(
-            "El dia de hoy seran enviados los contratos de prestacion de servicios, "
-            "del area de soporte solamente, cualquier duda comuniquese con HR Dept."
+            "Complete your workday using your assigned Employee ID."
         ),
         inline=False,
     )
 
     embed.set_footer(
-        text="Sistema automatizado y controlado por HR | Dept."
+        text="Powered by Uncle Max • Wings Store Human Resources"
     )
 
-    await ctx.send(embed=embed, view=MainPanelView())
+    await ctx.send(
+        embed=embed,
+        view=WorkdayPortalView(),
+    )
 
 
 @panel.error
@@ -934,18 +1017,28 @@ async def panel_error(
     error: commands.CommandError,
 ) -> None:
     if isinstance(error, commands.NoPrivateMessage):
-        await ctx.send("Este comando solo puede utilizarse en el servidor.")
+        await ctx.send(
+            "This command can only be used inside the Wings Store server."
+        )
         return
 
-    logger.exception("Error ejecutando !panel.", exc_info=error)
+    logger.exception(
+        "Error while running !panel.",
+        exc_info=error,
+    )
+
     await ctx.send(
-        "❌ No pude crear el panel. Revise los logs de Railway."
+        "❌ We couldn't create the Workday Portal. "
+        "Please review the Railway logs."
     )
 
 
 # ============================================================
-# EJECUCIÓN
+# STARTUP
 # ============================================================
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN, log_handler=None)
+    bot.run(
+        DISCORD_TOKEN,
+        log_handler=None,
+    )
