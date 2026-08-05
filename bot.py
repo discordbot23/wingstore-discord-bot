@@ -432,14 +432,14 @@ async def notificar_incidencia_rrhh(
 class ActividadModal(discord.ui.Modal):
     def __init__(self, id_emp: str):
         super().__init__(
-            title="REGISTRE LA ACTIVIDAD DE HOY",
+            title="TODAY'S WORK ACTIVITY",
             timeout=300,
         )
 
         self.id_emp = id_emp
 
         self.actividad = discord.ui.TextInput(
-            label="Describe la actividad de hoy",
+            label="Describe today's work activity",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Ej.: Diseño de publicaciones, programación, "
@@ -469,14 +469,14 @@ class ActividadModal(discord.ui.Modal):
 
             if success and incidencia:
                 await interaction.followup.send(
-                    "✅ **Su nueva entrada fue registrada correctamente.**\n"
+                    "✅ **Your new check-in has been successfully recorded.**\n"
                     f"**{detail}**\n\n"
-                    "⚠️ **Advertencia de jornada:** se detectó que la "
+                    "⚠️ **Previous Workday Notice:** se detectó que la "
                     f"entrada del **{incidencia['fecha']} a las "
-                    f"{incidencia['hora']}** no cuenta con una salida "
-                    "registrada.\n\n"
+                    f"{incidencia['hora']}** no cuenta con una salida registrada "
+                    "registrada.⚠️\n\n"
                     "Puede continuar con normalidad. Recursos Humanos "
-                    "fue notificado para revisar la incidencia.",
+                    "ha sido notificado en este momento para revisar la incidencia.",
                     ephemeral=True,
                 )
 
@@ -487,10 +487,10 @@ class ActividadModal(discord.ui.Modal):
 
             elif success:
                 await interaction.followup.send(
-                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
+                    "✅🪽 Hello! I'm Uncle Max y ya registré su "
                     "entrada correctamente.\n"
                     f"**{detail}**\n"
-                    "¡Te deseo una excelente jornada y mucho éxito!",
+                    "Have a great day, and thank you for being part of Wings Store!",
                     ephemeral=True,
                 )
 
@@ -503,8 +503,8 @@ class ActividadModal(discord.ui.Modal):
 
             await interaction.followup.send(
                 "❌ No pude registrar su entrada después de varios intentos. "
-                "No se mostró una confirmación falsa. Inténtelo nuevamente "
-                "en un momento o comuníquese con Recursos Humanos.",
+                "Inténtelo nuevamente en un momento "
+                "o comuníquese con Human Resources Dept..",
                 ephemeral=True,
             )
 
@@ -520,7 +520,7 @@ class ActividadModal(discord.ui.Modal):
 
         message = (
             "❌ Ocurrió un error inesperado. Inténtelo nuevamente o "
-            "comuníquese con Recursos Humanos."
+            "comuníquese con Human Resources Dept.."
         )
 
         if interaction.response.is_done():
@@ -546,10 +546,10 @@ class EntradaSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (grupo 1)"
+            placeholder = "Seleccione su ID (WS-001 WS-027)"
             custom_id = "tio_max:entrada_select:1"
         else:
-            placeholder = "Seleccione su ID (grupo 2)"
+            placeholder = "Seleccione su ID (WS-028 WS-050)"
             custom_id = "tio_max:entrada_select:2"
 
         super().__init__(
@@ -579,10 +579,10 @@ class SalidaSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Seleccione su ID (grupo 1)"
+            placeholder = "Seleccione su ID (WS-001 WS-027)"
             custom_id = "tio_max:salida_select:1"
         else:
-            placeholder = "Seleccione su ID (grupo 2)"
+            placeholder = "Seleccione su ID (WS-028 WS-050)"
             custom_id = "tio_max:salida_select:2"
 
         super().__init__(
@@ -611,10 +611,10 @@ class SalidaSelect(discord.ui.Select):
 
             if success:
                 await interaction.followup.send(
-                    "✅🪽 ¡Hola! Soy el Tío Max y ya registré su "
+                    "✅🪽 Hello! I'm Uncle Max y ya registré su "
                     "salida correctamente.\n"
                     f"**{detail}**\n"
-                    "Gracias por acompañarnos el día de hoy. "
+                    "Gracias por todo lo que hiciste el día de hoy. "
                     "¡Que tengas un excelente descanso!",
                     ephemeral=True,
                 )
@@ -877,42 +877,42 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="REGISTRO OFICIAL DE PRESTACIÓN DE SERVICIOS WINGS STORE",
+        title="OFFICIAL WINGS STORE WORKDAY REGISTRATION",
         description=(
-            "Utilice los botones para registrar su entrada o salida."
+            "Use the buttons below to register your check-in or check-out."
         ),
         color=0x5865F2,
     )
 
     embed.add_field(
-        name="¡Hola! Soy el Tío Max",
+        name="Hello! I'm Uncle Max",
         value=(
-            "Estoy listo para registrar su jornada. "
+            "Estoy listo para registrar su Prestacion de Servicios. "
             "Seleccione la opción correspondiente y después su ID."
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="🟢 Entrada 🟢",
+        name="🟢 Start Workday",
         value=(
             "Registre el inicio de la jornada con su respectivo "
-            "ID de empleado."
+            "ID de empleado correspondiente."
         ),
         inline=False,
     )
 
     embed.add_field(
-        name="🔴 Salida 🔴",
+        name="🔴 End Workday",
         value=(
             "Registre la terminación de la jornada con su respectivo "
-            "ID de empleado."
+            "ID de empleado correspondiente."
         ),
         inline=False,
     )
 
     embed.set_footer(
-        text="Sistema automatizado y controlado por HR | Dept."
+        text="Automated system managed by the Human Resources Department."
     )
 
     await ctx.send(embed=embed, view=MainPanelView())
