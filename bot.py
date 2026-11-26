@@ -37,6 +37,8 @@ EMPLOYEES_WORKSHEET_NAME = os.getenv(
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
 IDS_REFRESH_MINUTES = int(os.getenv("IDS_REFRESH_MINUTES", "10"))
+GOOGLE_CONNECT_TIMEOUT = int(os.getenv("GOOGLE_CONNECT_TIMEOUT", "5"))
+GOOGLE_READ_TIMEOUT = int(os.getenv("GOOGLE_READ_TIMEOUT", "12"))
 HR_CHANNEL_ID = int(os.getenv("HR_CHANNEL_ID", "0"))
 
 SCOPES = [
@@ -136,6 +138,15 @@ def connect_google_sync() -> None:
     )
 
     google_client = gspread.authorize(credentials)
+    # Limit each Sheets HTTP request; otherwise a single request can hang for minutes.
+    session = google_client.http_client.session
+    original_request = session.request
+
+    def bounded_request(method, url, **kwargs):
+        kwargs.setdefault("timeout", (GOOGLE_CONNECT_TIMEOUT, GOOGLE_READ_TIMEOUT))
+        return original_request(method, url, **kwargs)
+
+    session.request = bounded_request
     spreadsheet = google_client.open(SPREADSHEET_NAME)
     records_worksheet = spreadsheet.worksheet(RECORDS_WORKSHEET_NAME)
     employees_worksheet = spreadsheet.worksheet(EMPLOYEES_WORKSHEET_NAME)
@@ -280,6 +291,8 @@ def record_check_in_sync(
         sheet_time = now.strftime("%H:%M")
         display_time = now.strftime("%I:%M %p").lstrip("0")
 
+        # Do not automatically repeat this write: Google may have saved it
+        # even if the HTTP response was lost (ambiguous write outcome).
         records_worksheet.append_row(
             [
                 sheet_date,
@@ -294,10 +307,10 @@ def record_check_in_sync(
 
         return display_time, incident
 
-    return run_google_with_retries_sync(
-        f"record check-in for {employee_id}",
-        operation,
-    )
+    # Retrying the whole operation could append the same check-in twice.
+    # Fail visibly instead; HR can verify the row if the response was lost.
+    ensure_google_sync()
+    return operation()
 
 
 def record_check_out_sync(
@@ -476,6 +489,17 @@ async def notify_human_resources(
         )
 
 
+async def send_error_safely(interaction: discord.Interaction, message: str) -> None:
+    """Best effort error message; never mask the original exception."""
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except (discord.NotFound, discord.HTTPException):
+        logger.warning("Could not notify user: Discord interaction expired or was acknowledged.")
+
+
 # ============================================================
 # TODAY'S WORK ACTIVITY MODAL
 # ============================================================
@@ -529,7 +553,7 @@ class WorkActivityModal(discord.ui.Modal):
                     f"**{incident['previous_date']} at "
                     f"{incident['previous_time']}** does not have a "
                     "corresponding check-out.\n\n"
-                    "Human Resources has already been notified and will review this incident. "
+                    "Human Resources will review this incident. "
                     "You may continue without problem",
                     ephemeral=True,
                 )
@@ -557,11 +581,11 @@ class WorkActivityModal(discord.ui.Modal):
                 interaction.user,
             )
 
-            await interaction.followup.send(
+            await send_error_safely(
+                interaction,
                 "❌ **We couldn't complete your check-in.**\n\n"
                 "Please try again in a few moments. If the issue continues, "
                 "contact the Human Resources Department.",
-                ephemeral=True,
             )
 
     async def on_error(
@@ -579,16 +603,7 @@ class WorkActivityModal(discord.ui.Modal):
             "the Human Resources Department."
         )
 
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                message,
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                message,
-                ephemeral=True,
-            )
+        await send_error_safely(interaction, message)
 
 
 # ============================================================
@@ -703,11 +718,11 @@ class CheckOutSelect(discord.ui.Select):
                 interaction.user,
             )
 
-            await interaction.followup.send(
+            await send_error_safely(
+                interaction,
                 "❌ **We couldn't complete your check-out.**\n\n"
                 "Please try again in a few moments. If the issue continues, "
                 "contact the Human Resources Department.",
-                ephemeral=True,
             )
 
 
@@ -731,56 +746,33 @@ class WorkdayPortalView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def ensure_employee_ids(
-        self,
-        interaction: discord.Interaction,
-    ) -> bool:
+    async def ensure_employee_ids(self) -> bool:
         if EMPLOYEE_IDS_CACHE:
             return True
-
-        await interaction.response.defer(
-            ephemeral=True,
-            thinking=True,
-        )
-
-        updated = await refresh_employee_ids_cache()
-
-        if not updated:
-            await interaction.followup.send(
-                "❌ We couldn't load the Employee ID list right now. "
-                "Please try again in a few seconds.",
-                ephemeral=True,
-            )
-            return False
-
-        return True
+        return await refresh_employee_ids_cache()
 
     async def send_check_in_menu(
         self,
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not EMPLOYEE_IDS_CACHE:
-            if not await self.ensure_employee_ids(interaction):
-                return
-
-            send_response = interaction.followup.send
-        else:
-            send_response = interaction.response.send_message
-
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await self.ensure_employee_ids():
+            await interaction.followup.send(
+                "❌ We couldn't load the Employee ID list right now. "
+                "Please try again in a few seconds.", ephemeral=True,
+            )
+            return
         employee_ids = get_employee_id_group(group_number)
-
         if not employee_ids:
-            await send_response(
+            await interaction.followup.send(
                 "⚠️ No Employee IDs are currently available in this group.",
                 ephemeral=True,
             )
             return
-
-        await send_response(
+        await interaction.followup.send(
             "**Select your Employee ID:**",
-            view=CheckInSelectView(group_number),
-            ephemeral=True,
+            view=CheckInSelectView(group_number), ephemeral=True,
         )
 
     async def send_check_out_menu(
@@ -788,27 +780,23 @@ class WorkdayPortalView(discord.ui.View):
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not EMPLOYEE_IDS_CACHE:
-            if not await self.ensure_employee_ids(interaction):
-                return
-
-            send_response = interaction.followup.send
-        else:
-            send_response = interaction.response.send_message
-
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await self.ensure_employee_ids():
+            await interaction.followup.send(
+                "❌ We couldn't load the Employee ID list right now. "
+                "Please try again in a few seconds.", ephemeral=True,
+            )
+            return
         employee_ids = get_employee_id_group(group_number)
-
         if not employee_ids:
-            await send_response(
+            await interaction.followup.send(
                 "⚠️ No Employee IDs are currently available in this group.",
                 ephemeral=True,
             )
             return
-
-        await send_response(
+        await interaction.followup.send(
             "**Select your Employee ID:**",
-            view=CheckOutSelectView(group_number),
-            ephemeral=True,
+            view=CheckOutSelectView(group_number), ephemeral=True,
         )
 
     @discord.ui.button(
@@ -883,16 +871,7 @@ class WorkdayPortalView(discord.ui.View):
             "❌ We couldn't process that request. Please try again."
         )
 
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                message,
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                message,
-                ephemeral=True,
-            )
+        await send_error_safely(interaction, message)
 
 
 # ============================================================
@@ -907,7 +886,8 @@ class UncleMaxBot(commands.Bot):
     async def setup_hook(self) -> None:
         self.add_view(WorkdayPortalView())
 
-        await refresh_employee_ids_cache()
+        # Do not block Discord startup waiting for Google Sheets.
+        asyncio.create_task(refresh_employee_ids_cache())
 
         if not refresh_ids_task.is_running():
             refresh_ids_task.start()
@@ -976,7 +956,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🏆 AREA OF THE MONTH - DEVELOPMENT 🏆",
+        name="🏆 AREA OF THE MONTH ??? 🏆",
         value=(
             "**To be announced**\n\n"
         ),
