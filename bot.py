@@ -1020,7 +1020,7 @@ async def panel_error(
     )
 
     await ctx.send(
-        "❌ We couldn't create the Workday Portal. "
+        "❌ We couldn't create the Workday Portal - "
         "Please review the Railway logs."
     )
 
