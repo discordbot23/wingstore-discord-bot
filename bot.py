@@ -405,7 +405,7 @@ async def notify_human_resources(
     """
     Sends a workday incident notification to the private HR Discord channel.
 
-    Railway variable required:
+    Render environment variable required:
     HR_CHANNEL_ID=NUMERIC_DISCORD_CHANNEL_ID
     """
     if not HR_CHANNEL_ID:
@@ -489,6 +489,22 @@ async def notify_human_resources(
         )
 
 
+async def acknowledge_once(interaction: discord.Interaction) -> bool:
+    """Acknowledge an interaction once; do not run a write if it was rejected."""
+    if interaction.response.is_done():
+        logger.warning("Interaction already acknowledged locally | id=%s", interaction.id)
+        return False
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        return True
+    except (discord.InteractionResponded, discord.NotFound, discord.HTTPException) as exc:
+        logger.warning(
+            "Unable to acknowledge Discord interaction | id=%s | error=%s",
+            interaction.id, exc,
+        )
+        return False
+
+
 async def send_error_safely(interaction: discord.Interaction, message: str) -> None:
     """Best effort error message; never mask the original exception."""
     try:
@@ -496,8 +512,8 @@ async def send_error_safely(interaction: discord.Interaction, message: str) -> N
             await interaction.followup.send(message, ephemeral=True)
         else:
             await interaction.response.send_message(message, ephemeral=True)
-    except (discord.NotFound, discord.HTTPException):
-        logger.warning("Could not notify user: Discord interaction expired or was acknowledged.")
+    except (discord.NotFound, discord.HTTPException) as exc:
+        logger.warning("Could not notify user: Discord interaction expired or was acknowledged | %s", exc)
 
 
 # ============================================================
@@ -529,10 +545,8 @@ class WorkActivityModal(discord.ui.Modal):
         self,
         interaction: discord.Interaction,
     ) -> None:
-        await interaction.response.defer(
-            ephemeral=True,
-            thinking=True,
-        )
+        if not await acknowledge_once(interaction):
+            return
 
         try:
             async with SHEETS_LOCK:
@@ -677,10 +691,8 @@ class CheckOutSelect(discord.ui.Select):
         self,
         interaction: discord.Interaction,
     ) -> None:
-        await interaction.response.defer(
-            ephemeral=True,
-            thinking=True,
-        )
+        if not await acknowledge_once(interaction):
+            return
 
         employee_id = self.values[0]
 
@@ -756,7 +768,8 @@ class WorkdayPortalView(discord.ui.View):
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge_once(interaction):
+            return
         if not await self.ensure_employee_ids():
             await interaction.followup.send(
                 "❌ We couldn't load the Employee ID list right now. "
@@ -780,7 +793,8 @@ class WorkdayPortalView(discord.ui.View):
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge_once(interaction):
+            return
         if not await self.ensure_employee_ids():
             await interaction.followup.send(
                 "❌ We couldn't load the Employee ID list right now. "
