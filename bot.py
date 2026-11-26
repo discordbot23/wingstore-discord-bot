@@ -976,7 +976,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🏆 AREA OF THE MONTH ??? 🏆",
+        name="🏆 AREA OF THE MONTH - DEVELOPMENT 🏆",
         value=(
             "**To be announced**\n\n"
         ),
