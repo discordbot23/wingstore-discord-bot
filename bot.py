@@ -97,7 +97,7 @@ spreadsheet: gspread.Spreadsheet | None = None
 records_worksheet: gspread.Worksheet | None = None
 employees_worksheet: gspread.Worksheet | None = None
 
-EMPLOYEES_CACHE: dict[str, tuple[str, ZoneInfo | None]] = {}
+EMPLOYEES_CACHE: dict[str, tuple[str, ZoneInfo | None, str]] = {}
 
 # Prevents two interactions in this process from editing the worksheet
 # at exactly the same time.
@@ -258,8 +258,8 @@ def country_timezone(value: str) -> str:
     return zone
 
 
-def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
-    def operation() -> dict[str, tuple[str, ZoneInfo | None]]:
+def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None, str]]:
+    def operation() -> dict[str, tuple[str, ZoneInfo | None, str]]:
         assert employees_worksheet is not None
 
         headers = employees_worksheet.get("1:3")
@@ -281,6 +281,9 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
             default=-1,
         )
 
+        region_column = employee_column(
+            "", headers, ("region", "ciudad", "region de trabajo"), default=-1
+        )
         country_column = employee_column(
             "",
             headers,
@@ -295,7 +298,7 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
 
         employees = {}
         invalid_zone_ids = []
-        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column, country_column) + 1)
+        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column, country_column, region_column) + 1)
         last_column = last_column.rstrip("4")
         for row in employees_worksheet.get(f"A4:{last_column}"):
             employee_id = cell(row, 0)
@@ -309,9 +312,15 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
                     zone = ZoneInfo(zone_key)
                 except (ZoneInfoNotFoundError, ValueError):
                     invalid_zone_ids.append(employee_id)
-            previous_name, previous_zone = employees.get(employee_id, ("", None))
-            employees[employee_id] = (previous_name or name, previous_zone or zone)
-        if employees and not any(name for name, _ in employees.values()):
+            previous_name, previous_zone, previous_region = employees.get(
+                employee_id, ("", None, "")
+            )
+            employees[employee_id] = (
+                previous_name or name,
+                previous_zone or zone,
+                previous_region or cell(row, region_column),
+            )
+        if employees and not any(name for name, _, _ in employees.values()):
             logger.warning("No employee names found. Check EMPLOYEE_NAME_COLUMN.")
         if invalid_zone_ids:
             logger.warning("Invalid time zones for employee IDs: %s", ", ".join(invalid_zone_ids))
@@ -321,7 +330,7 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
 
 
 def employee_display_name(employee_id: str) -> str:
-    name, _ = EMPLOYEES_CACHE.get(employee_id, ("", None))
+    name, _, _ = EMPLOYEES_CACHE.get(employee_id, ("", None, ""))
     return name.title() if name.isupper() else name
 
 
@@ -362,12 +371,16 @@ def add_registration_times(
     employee_zone: ZoneInfo | None,
     *,
     private_confirmation: bool = True,
+    employee_id: str = "",
 ) -> None:
     venezuela_time = display_registration_time(
         instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"
     )
     if employee_zone:
-        region = TIMEZONE_REGIONS.get(employee_zone.key)
+        _, _, configured_region = EMPLOYEES_CACHE.get(employee_id, ("", None, ""))
+        region = discord.utils.escape_markdown(configured_region[:100])
+        if not region:
+            region = TIMEZONE_REGIONS.get(employee_zone.key)
         if region is None:
             region = employee_zone.key.rsplit("/", 1)[-1].replace("_", " ")
         local_time = display_registration_time(instant, employee_zone, region)
@@ -1360,7 +1373,8 @@ async def notify_human_resources(
         inline=False,
     )
     add_registration_times(
-        embed, registered_at, employee_zone, private_confirmation=False
+        embed, registered_at, employee_zone,
+        private_confirmation=False, employee_id=incident["employee_id"],
     )
     embed.add_field(
         name="Google Sheets Row",
@@ -1418,7 +1432,7 @@ def build_check_in_embed(
         color=STATUS_GREEN,
     )
 
-    add_registration_times(embed, registered_at, employee_zone)
+    add_registration_times(embed, registered_at, employee_zone, employee_id=employee_id)
 
     if incident:
         embed.add_field(
@@ -1450,7 +1464,7 @@ def build_check_out_embed(
         color=STATUS_GREEN,
     )
 
-    add_registration_times(embed, result["registered_at"], employee_zone)
+    add_registration_times(embed, result["registered_at"], employee_zone, employee_id=employee_id)
     embed.add_field(
         name="Original check-in",
         value=f"{result['check_in_date']} · {result['check_in_time']}",
@@ -1507,7 +1521,7 @@ class WorkActivityModal(discord.ui.Modal):
             thinking=True,
         )
 
-        employee_name, employee_zone = EMPLOYEES_CACHE.get(self.employee_id, ("", None))
+        employee_name, employee_zone, _ = EMPLOYEES_CACHE.get(self.employee_id, ("", None, ""))
         try:
             async with SHEETS_LOCK:
                 registered_at, incident = await asyncio.to_thread(
@@ -1672,7 +1686,7 @@ class CheckOutSelect(discord.ui.Select):
         )
 
         employee_id = self.values[0]
-        employee_name, employee_zone = EMPLOYEES_CACHE.get(employee_id, ("", None))
+        employee_name, employee_zone, _ = EMPLOYEES_CACHE.get(employee_id, ("", None, ""))
 
         try:
             async with SHEETS_LOCK:
