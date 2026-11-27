@@ -225,6 +225,37 @@ def employee_column(
     return default
 
 
+COUNTRY_TIMEZONES = {
+    "venezuela": ("America/Caracas", "Venezuela"),
+    "mexico": ("America/Mexico_City", "Central Mexico"),
+    "brasil": ("America/Sao_Paulo", "Brazil · Brasília time"),
+    "argentina": ("America/Argentina/Buenos_Aires", "Argentina"),
+    "republica dominicana": ("America/Santo_Domingo", "Dominican Republic"),
+    "colombia": ("America/Bogota", "Colombia"),
+    "nigeria": ("Africa/Lagos", "Nigeria"),
+    "filipinas": ("Asia/Manila", "Philippines"),
+}
+NATIONALITY_COUNTRIES = {
+    "venezolan": "venezuela",
+    "mexican": "mexico",
+    "brasilen": "brasil",
+    "argentin": "argentina",
+    "dominican": "republica dominicana",
+    "colombian": "colombia",
+    "nigerian": "nigeria",
+    "filipin": "filipinas",
+}
+TIMEZONE_REGIONS = {zone: region for zone, region in COUNTRY_TIMEZONES.values()}
+
+
+def country_timezone(value: str) -> str:
+    text = normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
+    text = " ".join(text.split())
+    country = NATIONALITY_COUNTRIES.get(text[:-1], text) if text.endswith(("a", "o")) else text
+    zone, _ = COUNTRY_TIMEZONES.get(country, ("", ""))
+    return zone
+
+
 def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
     def operation() -> dict[str, tuple[str, ZoneInfo | None]]:
         assert employees_worksheet is not None
@@ -248,6 +279,13 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
             default=-1,
         )
 
+        country_column = employee_column(
+            "",
+            headers,
+            ("pais de trabajo", "pais de residencia", "pais", "country", "nacionalidad", "nationality"),
+            default=-1,
+        )
+
         def cell(row: list[str], index: int) -> str:
             if 0 <= index < len(row):
                 return " ".join(str(row[index] or "").split())
@@ -255,14 +293,14 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
 
         employees = {}
         invalid_zone_ids = []
-        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column) + 1)
+        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column, country_column) + 1)
         last_column = last_column.rstrip("4")
         for row in employees_worksheet.get(f"A4:{last_column}"):
             employee_id = cell(row, 0)
             if not employee_id:
                 continue
             name = cell(row, name_column)
-            zone_key = cell(row, zone_column)
+            zone_key = cell(row, zone_column) or country_timezone(cell(row, country_column))
             zone = None
             if zone_key:
                 try:
@@ -327,7 +365,9 @@ def add_registration_times(
         instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"
     )
     if employee_zone:
-        region = employee_zone.key.rsplit("/", 1)[-1].replace("_", " ")
+        region = TIMEZONE_REGIONS.get(employee_zone.key)
+        if region is None:
+            region = employee_zone.key.rsplit("/", 1)[-1].replace("_", " ")
         local_time = display_registration_time(instant, employee_zone, region)
     elif private_confirmation:
         stamp = int(instant.timestamp())
@@ -1163,16 +1203,26 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="Wings Store | Workday Portal",
+        title="Wings Store | Official Workday Portal",
         description=(
-            "Welcome to the Wings Store time registration portal. "
-            "Choose Check In or Check Out for your employee ID range."
+            "Welcome! I'm Uncle Max, your time assistant for the "
+            "official Wings Store time registration system."
         ),
-        color=0x142743,
+        color=0x5865F2,
     )
     embed.add_field(
-        name="November League Playoff Champions",
+        name="🏆 November League Playoff Champions",
         value="Arturo Pérez · René Ramírez\nGabriel Pérez · Oswar Pacheco",
+        inline=False,
+    )
+    embed.add_field(
+        name="🟢 Check In",
+        value="Start your workday and enter your planned activity.",
+        inline=False,
+    )
+    embed.add_field(
+        name="🔴 Check Out",
+        value="Complete your workday using your assigned employee ID.",
         inline=False,
     )
     embed.set_footer(text=PORTAL_FOOTER)
