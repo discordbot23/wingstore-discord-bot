@@ -568,6 +568,7 @@ def get_employee_id_group(group_number: int) -> list[str]:
 # HUMAN RESOURCES NOTIFICATIONS
 # ============================================================
 
+WINGS_NAVY = 0x142743
 PORTAL_FOOTER = "Wings Store • Human Resources"
 
 
@@ -603,12 +604,12 @@ async def notify_human_resources(
             return
 
     embed = discord.Embed(
-        title="🚨 Workday Incident",
+        title="Workday Incident",
         description=(
             "A new check-in was recorded while a previous workday "
             "remained open."
         ),
-        color=0xF59E0B,
+        color=WINGS_NAVY,
         timestamp=registered_at,
     )
 
@@ -682,7 +683,7 @@ def build_check_in_embed(
     embed = discord.Embed(
         title="Check In Confirmed",
         description=confirmation_employee(employee_id),
-        color=0x23A559,
+        color=WINGS_NAVY,
     )
 
     add_registration_times(embed, registered_at, employee_zone)
@@ -707,7 +708,7 @@ def build_check_out_embed(
     embed = discord.Embed(
         title="Check Out Confirmed",
         description=confirmation_employee(employee_id),
-        color=0xF23F43,
+        color=WINGS_NAVY,
     )
 
     add_registration_times(embed, result["registered_at"], employee_zone)
@@ -1059,7 +1060,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check In (WS-001–027)",
-        style=discord.ButtonStyle.success,
+        style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
     )
@@ -1073,7 +1074,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check In (WS-028–050)",
-        style=discord.ButtonStyle.success,
+        style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
     )
@@ -1087,7 +1088,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check Out (WS-001–027)",
-        style=discord.ButtonStyle.danger,
+        style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
     )
@@ -1101,7 +1102,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check Out (WS-028–050)",
-        style=discord.ButtonStyle.danger,
+        style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
     )
@@ -1203,26 +1204,27 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="Wings Store | Official Workday Portal",
+        title="Workday Portal",
         description=(
-            "Welcome! I'm Uncle Max, your time assistant for the "
-            "official Wings Store time registration system."
+            "Welcome. I'm Uncle Max, your time registration assistant. "
+            "To record your hours, select the action for your employee ID range."
         ),
-        color=0x5865F2,
+        color=WINGS_NAVY,
     )
+    embed.set_author(name="Wings Store")
     embed.add_field(
-        name="🏆 November League Playoff Champions",
-        value="Arturo Pérez · René Ramírez\nGabriel Pérez · Oswar Pacheco",
-        inline=False,
-    )
-    embed.add_field(
-        name="🟢 Check In",
+        name="Check In",
         value="Start your workday and enter your planned activity.",
         inline=False,
     )
     embed.add_field(
-        name="🔴 Check Out",
-        value="Complete your workday using your assigned employee ID.",
+        name="Check Out",
+        value="Record the end of your workday.",
+        inline=False,
+    )
+    embed.add_field(
+        name="November League Playoff Champions",
+        value="Arturo Pérez · Renny Ramírez\nGabriel Pérez · Osward Pacheco",
         inline=False,
     )
     embed.set_footer(text=PORTAL_FOOTER)
