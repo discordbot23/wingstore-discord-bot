@@ -358,21 +358,26 @@ def sheet_timestamp(instant: datetime, zone: ZoneInfo) -> str:
     return f"{local.isoformat(sep=' ', timespec='seconds')} [{zone.key}]"
 
 
-def display_registration_time(
-    instant: datetime,
-    zone: ZoneInfo,
-    region: str,
-) -> str:
-    local = instant.astimezone(zone)
-    clock = local.strftime("%I:%M %p").lstrip("0")
-    date = f"{local.strftime('%b')} {local.day}, {local.year}"
+GENERAL_TIME_LABEL = "Wings Store General Time"
+
+
+def gmt_offset(local: datetime) -> str:
     offset_minutes = int(local.utcoffset().total_seconds() / 60)
     sign = "−" if offset_minutes < 0 else "+"
     hours, minutes = divmod(abs(offset_minutes), 60)
-    offset = f"GMT{sign}{hours}"
-    if minutes:
-        offset += f":{minutes:02d}"
-    return f"**{clock}** · {date}\n{region} ({offset})"
+    return f"GMT{sign}{hours}:{minutes:02d}" if minutes else f"GMT{sign}{hours}"
+
+
+def display_registration_time(
+    instant: datetime,
+    zone: ZoneInfo,
+    region: str = "",
+) -> str:
+    local = instant.astimezone(zone)
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    date = f"{local.strftime('%B')} {local.day}, {local.year}"
+    zone_line = f"{region} · {gmt_offset(local)}" if region else gmt_offset(local)
+    return f"{date} · {clock}\n{zone_line}"
 
 
 def add_registration_times(
@@ -383,9 +388,7 @@ def add_registration_times(
     private_confirmation: bool = True,
     employee_id: str = "",
 ) -> None:
-    venezuela_time = display_registration_time(
-        instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"
-    )
+    general_time = display_registration_time(instant, VENEZUELA_TIMEZONE)
     if employee_zone:
         _, _, configured_region = EMPLOYEES_CACHE.get(employee_id, ("", None, ""))
         region = discord.utils.escape_markdown(configured_region[:100])
@@ -396,14 +399,14 @@ def add_registration_times(
         local_time = display_registration_time(instant, employee_zone, region)
     elif private_confirmation:
         stamp = int(instant.timestamp())
-        local_time = f"**<t:{stamp}:t>** · <t:{stamp}:D>\nLocal GMT unavailable"
+        local_time = f"<t:{stamp}:D> · <t:{stamp}:t>\nLocal GMT unavailable"
     else:
         local_time = "Employee time zone unavailable"
 
-    local_label = "Your local time" if private_confirmation else "Employee local time"
+    local_label = "Your Local Time" if private_confirmation else "Employee Local Time"
     embed.add_field(
-        name="Registration time",
-        value=f"**{local_label}**\n{local_time}\n\n**Venezuela time**\n{venezuela_time}",
+        name="Registration Time",
+        value=f"**{local_label}**\n{local_time}\n\n**{GENERAL_TIME_LABEL}**\n{general_time}",
         inline=False,
     )
 
@@ -552,16 +555,15 @@ def closed_workday_end(row: list[str], start: datetime) -> datetime | None:
 def workday_summary(
     records: list[list[str]],
     employee_id: str,
-    row: list[str],
+    start: datetime | None,
     registered_at: datetime,
-) -> tuple[int | None, int | None]:
-    start = workday_start(row)
+) -> int | None:
     end = registered_at.astimezone(timezone.utc)
     if start is None or start > end:
-        return None, None
+        return None
 
-    day = registered_at.astimezone(TIMEZONE).date()
-    midnight = datetime.combine(day, clock_time.min, TIMEZONE).astimezone(timezone.utc)
+    day = registered_at.astimezone(VENEZUELA_TIMEZONE).date()
+    midnight = datetime.combine(day, clock_time.min, VENEZUELA_TIMEZONE).astimezone(timezone.utc)
     intervals = [(max(start, midnight), end)]
     for previous in records[1:]:
         if len(previous) < 4 or previous[1].strip() != employee_id or not previous[3].strip():
@@ -583,7 +585,7 @@ def workday_summary(
         if interval_end > covered_until:
             total_seconds += (interval_end - max(interval_start, covered_until)).total_seconds()
             covered_until = interval_end
-    return int((end - start).total_seconds() // 60), int(total_seconds // 60)
+    return int(total_seconds // 60)
 
 
 def record_check_out_sync(
@@ -612,7 +614,8 @@ def record_check_out_sync(
 
         row_number, row = open_workday
         sheet_time = now.strftime("%H:%M")
-        duration_minutes, today_minutes = workday_summary(records, employee_id, row, now)
+        check_in_at = workday_start(row)
+        today_minutes = workday_summary(records, employee_id, check_in_at, now)
 
         updates = [
             {"range": f"D{row_number}", "values": [[sheet_time]]},
@@ -631,10 +634,8 @@ def record_check_out_sync(
         return True, {
             "employee_id": employee_id,
             "registered_at": now,
-            "check_in_date": format_us_date(row[0]),
-            "check_in_time": format_us_time(row[2]),
+            "check_in_at": check_in_at,
             "activity": row[4],
-            "duration_minutes": duration_minutes,
             "today_minutes": today_minutes,
         }
 
@@ -1445,8 +1446,9 @@ def build_check_in_embed(
     add_registration_times(embed, registered_at, employee_zone, employee_id=employee_id)
 
     if incident:
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
         embed.add_field(
-            name="⚠️ Previous workday still open",
+            name="⚠️ Previous Workday Still Open",
             value=f"{incident['previous_date']} · {incident['previous_time']}",
             inline=False,
         )
@@ -1460,7 +1462,7 @@ def display_work_minutes(minutes: int | None) -> str:
     if minutes is None:
         return "Unavailable"
     hours, remaining = divmod(minutes, 60)
-    return f"{hours}h {remaining:02d}m" if hours else f"{remaining}m"
+    return f"{hours} h {remaining:02d} min" if hours else f"{remaining} min"
 
 
 def build_check_out_embed(
@@ -1474,22 +1476,23 @@ def build_check_out_embed(
         color=STATUS_GREEN,
     )
 
-    add_registration_times(embed, result["registered_at"], employee_zone, employee_id=employee_id)
-    embed.add_field(
-        name="Original check-in",
-        value=f"{result['check_in_date']} · {result['check_in_time']}",
-        inline=False,
+    registered_at = result["registered_at"]
+    add_registration_times(embed, registered_at, employee_zone, employee_id=employee_id)
+    check_in_at = result["check_in_at"]
+    original_time = (
+        display_registration_time(check_in_at, VENEZUELA_TIMEZONE, GENERAL_TIME_LABEL)
+        if check_in_at else "Time unavailable in the original record."
     )
+    embed.add_field(name="Original Check-In", value=original_time, inline=False)
 
     activity = discord.utils.escape_markdown(str(result["activity"]).strip())
-    embed.add_field(name="Work activity", value=activity[:1024] or "None recorded", inline=False)
-    day_label = "Venezuela time" if BOT_TIMEZONE == "America/Caracas" else BOT_TIMEZONE
+    embed.add_field(name="Work Activity", value=activity[:1024] or "None recorded", inline=False)
+    general_date = registered_at.astimezone(VENEZUELA_TIMEZONE)
+    summary_date = f"{general_date.strftime('%B')} {general_date.day}"
+    daily_total = display_work_minutes(result["today_minutes"])
     embed.add_field(
-        name="Work summary",
-        value=(
-            f"**This workday** · {display_work_minutes(result['duration_minutes'])}\n"
-            f"**Today's total ({day_label})** · {display_work_minutes(result['today_minutes'])}"
-        ),
+        name="Today’s Total",
+        value=f"**{daily_total}**\n{summary_date} · {GENERAL_TIME_LABEL} · {gmt_offset(general_date)}",
         inline=False,
     )
     embed.set_footer(text=PORTAL_FOOTER)
