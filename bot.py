@@ -572,6 +572,9 @@ def get_employee_id_group(group_number: int) -> list[str]:
 
 WINGS_NAVY = 0x142743
 WINGS_ORANGE = 0xFF8500
+STATUS_GREEN = 0x23A559
+STATUS_AMBER = 0xE8A317
+STATUS_RED = 0xDA373C
 # Brand thumbnails are embedded so deployment only needs bot.py.
 UNCLE_MAX_ART = (
     "iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAAAXNSR0IArs4c6QAAAARnQU1BAACx"
@@ -1244,7 +1247,7 @@ async def notify_human_resources(
             "A new check-in was recorded while a previous workday "
             "remained open."
         ),
-        color=WINGS_NAVY,
+        color=STATUS_AMBER,
         timestamp=registered_at,
     )
 
@@ -1300,6 +1303,10 @@ async def notify_human_resources(
 # CONFIRMATION CARDS
 # ============================================================
 
+def registration_notice(title: str, message: str, *, color: int) -> discord.Embed:
+    return discord.Embed(title=title, description=message, color=color)
+
+
 def confirmation_employee(employee_id: str) -> str:
     name = employee_display_name(employee_id)
     safe_id = discord.utils.escape_markdown(employee_id)
@@ -1318,14 +1325,14 @@ def build_check_in_embed(
     embed = discord.Embed(
         title="Check In Confirmed",
         description=confirmation_employee(employee_id),
-        color=WINGS_NAVY,
+        color=STATUS_GREEN,
     )
 
     add_registration_times(embed, registered_at, employee_zone)
 
     if incident:
         embed.add_field(
-            name="Previous workday still open",
+            name="⚠️ Previous workday still open",
             value=f"{incident['previous_date']} · {incident['previous_time']}",
             inline=False,
         )
@@ -1343,7 +1350,7 @@ def build_check_out_embed(
     embed = discord.Embed(
         title="Check Out Confirmed",
         description=confirmation_employee(employee_id),
-        color=WINGS_NAVY,
+        color=STATUS_GREEN,
     )
 
     add_registration_times(embed, result["registered_at"], employee_zone)
@@ -1430,9 +1437,12 @@ class WorkActivityModal(discord.ui.Modal):
             )
 
             await interaction.followup.send(
-                "**Check In Failed**\n\n"
-                "Please try again in a few moments. If the issue continues, "
-                "contact the Human Resources Department.",
+                embed=registration_notice(
+                    "Check In could not be confirmed",
+                    "Check whether the entry was saved before trying again. "
+                    "If you are unsure, contact Human Resources.",
+                    color=STATUS_RED,
+                ),
                 ephemeral=True,
             )
 
@@ -1446,19 +1456,20 @@ class WorkActivityModal(discord.ui.Modal):
             exc_info=error,
         )
 
-        message = (
-            "An unexpected error occurred. Please try again or contact "
-            "the Human Resources Department."
+        notice = registration_notice(
+            "Request could not be completed",
+            "If you were recording a workday, verify the entry before retrying.",
+            color=STATUS_RED,
         )
 
         if interaction.response.is_done():
             await interaction.followup.send(
-                message,
+                embed=notice,
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                message,
+                embed=notice,
                 ephemeral=True,
             )
 
@@ -1574,7 +1585,9 @@ class CheckOutSelect(discord.ui.Select):
                 display_name = employee_display(employee_id)[:200]
                 message = result["message"].replace(f"**{employee_id}**", f"**{display_name}**")
                 await interaction.followup.send(
-                    f"**Check Out Unavailable**\n\n{message}",
+                    embed=registration_notice(
+                        "Check Out unavailable", message, color=STATUS_AMBER
+                    ),
                     ephemeral=True,
                 )
 
@@ -1586,9 +1599,12 @@ class CheckOutSelect(discord.ui.Select):
             )
 
             await interaction.followup.send(
-                "**Check Out Failed**\n\n"
-                "Please try again in a few moments. If the issue continues, "
-                "contact the Human Resources Department.",
+                embed=registration_notice(
+                    "Check Out could not be confirmed",
+                    "Check whether the entry was saved before trying again. "
+                    "If you are unsure, contact Human Resources.",
+                    color=STATUS_RED,
+                ),
                 ephemeral=True,
             )
 
@@ -1629,8 +1645,11 @@ class WorkdayPortalView(discord.ui.View):
 
         if not updated:
             await interaction.followup.send(
-                "The Employee ID list is temporarily unavailable. "
-                "Please try again in a few seconds.",
+                embed=registration_notice(
+                    "Employee list unavailable",
+                    "Please try again in a few seconds.",
+                    color=STATUS_AMBER,
+                ),
                 ephemeral=True,
             )
             return False
@@ -1654,7 +1673,11 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "No Employee IDs are available in this range.",
+                embed=registration_notice(
+                    "No employees in this range",
+                    "Check your employee ID and choose the matching range.",
+                    color=STATUS_AMBER,
+                ),
                 ephemeral=True,
             )
             return
@@ -1682,7 +1705,11 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "No Employee IDs are available in this range.",
+                embed=registration_notice(
+                    "No employees in this range",
+                    "Check your employee ID and choose the matching range.",
+                    color=STATUS_AMBER,
+                ),
                 ephemeral=True,
             )
             return
@@ -1695,7 +1722,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check In · 001–027",
-        style=discord.ButtonStyle.primary,
+        style=discord.ButtonStyle.success,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
     )
@@ -1709,7 +1736,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check In · 028–050",
-        style=discord.ButtonStyle.primary,
+        style=discord.ButtonStyle.success,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
     )
@@ -1723,7 +1750,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check Out · 001–027",
-        style=discord.ButtonStyle.secondary,
+        style=discord.ButtonStyle.danger,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
     )
@@ -1737,7 +1764,7 @@ class WorkdayPortalView(discord.ui.View):
 
     @discord.ui.button(
         label="Check Out · 028–050",
-        style=discord.ButtonStyle.secondary,
+        style=discord.ButtonStyle.danger,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
     )
@@ -1761,18 +1788,20 @@ class WorkdayPortalView(discord.ui.View):
             exc_info=error,
         )
 
-        message = (
-            "The request could not be processed. Please try again."
+        notice = registration_notice(
+            "Request could not be completed",
+            "If you were recording a workday, verify the entry before retrying.",
+            color=STATUS_RED,
         )
 
         if interaction.response.is_done():
             await interaction.followup.send(
-                message,
+                embed=notice,
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                message,
+                embed=notice,
                 ephemeral=True,
             )
 
