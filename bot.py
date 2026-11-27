@@ -2029,11 +2029,10 @@ async def panel(ctx: commands.Context) -> None:
     champions = discord.ui.Container(
         discord.ui.Section(
             discord.ui.TextDisplay(
-                "-# NOVEMBER BENEFITS\n"
+                "-# HAPPY THANKSGIVING DAY\n"
                 "### Play Us League Champions\n"
                 "**Arturo Pérez** · **Renny Ramírez**\n"
-                "**Gabriel Pérez** · **Osward Pacheco**\n"
-                "### ¡HAPPY THANKSGIVING DAY!\n"
+                "**Gabriel Pérez** · **Osward Pacheco**"
             ),
             accessory=discord.ui.Thumbnail(
                 f"attachment://{logo_name}",
