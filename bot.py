@@ -294,6 +294,12 @@ def sheet_timestamp(instant: datetime, zone: ZoneInfo) -> str:
     return f"{local.isoformat(sep=' ', timespec='seconds')} [{zone.key}]"
 
 
+def display_registration_time(instant: datetime, zone: ZoneInfo) -> str:
+    local = instant.astimezone(zone)
+    time_text = local.strftime("%I:%M %p").lstrip("0")
+    return f"{local.strftime('%b')} {local.day}, {local.year} · {time_text}"
+
+
 def add_registration_times(
     embed: discord.Embed,
     instant: datetime,
@@ -301,35 +307,22 @@ def add_registration_times(
     *,
     private_confirmation: bool = True,
 ) -> None:
-    embed.add_field(
-        name="Venezuela Time",
-        value=sheet_timestamp(instant, VENEZUELA_TIMEZONE),
-        inline=True,
-    )
+    venezuela_time = display_registration_time(instant, VENEZUELA_TIMEZONE)
     if private_confirmation:
-        embed.add_field(
-            name="Your Local Time",
-            value=f"<t:{int(instant.timestamp())}:f>",
-            inline=True,
-        )
-        if employee_zone:
-            embed.add_field(
-                name="Local Time Saved to Sheets",
-                value=sheet_timestamp(instant, employee_zone),
-                inline=False,
-            )
-    elif employee_zone:
-        embed.add_field(
-            name="Employee Local Time",
-            value=sheet_timestamp(instant, employee_zone),
-            inline=True,
-        )
+        local_label = "Your local time"
+        local_time = f"<t:{int(instant.timestamp())}:f>"
     else:
-        embed.add_field(
-            name="Employee Local Time",
-            value="No employee time zone configured.",
-            inline=True,
+        local_label = "Employee local time"
+        local_time = (
+            display_registration_time(instant, employee_zone)
+            if employee_zone else "Time zone unavailable"
         )
+
+    embed.add_field(
+        name="Registration time",
+        value=f"**{local_label}** · {local_time}\n**Venezuela** · {venezuela_time}",
+        inline=False,
+    )
 
 
 def find_open_workday(
@@ -613,6 +606,15 @@ async def notify_human_resources(
 # CONFIRMATION CARDS
 # ============================================================
 
+def confirmation_employee(employee_id: str) -> str:
+    name, _ = EMPLOYEES_CACHE.get(employee_id, ("", None))
+    safe_id = discord.utils.escape_markdown(employee_id)
+    if not name:
+        return f"Employee ID · {safe_id}"
+    safe_name = discord.utils.escape_markdown(name)
+    return f"**{safe_name}**\nEmployee ID · {safe_id}"
+
+
 def build_check_in_embed(
     employee_id: str,
     registered_at: datetime,
@@ -620,10 +622,8 @@ def build_check_in_embed(
     employee_zone: ZoneInfo | None,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="✅ Checked in",
-        description=(
-            f"Your check-in was recorded for **{employee_display(employee_id)[:200]}**."
-        ),
+        title="Check In Confirmed",
+        description=confirmation_employee(employee_id),
         color=0x23A559,
     )
 
@@ -631,13 +631,8 @@ def build_check_in_embed(
 
     if incident:
         embed.add_field(
-            name="Previous Workday Still Open",
-            value=(
-                f"The check-in from **{incident['previous_date']} at "
-                f"{incident['previous_time']}** has no recorded check-out. "
-                "Your new check-in is recorded. Human Resources will review "
-                "the previous workday."
-            ),
+            name="Previous workday still open",
+            value=f"{incident['previous_date']} · {incident['previous_time']}",
             inline=False,
         )
 
@@ -652,20 +647,15 @@ def build_check_out_embed(
     employee_zone: ZoneInfo | None,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="🏁 Workday completed",
-        description=(
-            f"Your check-out was recorded for **{employee_display(employee_id)[:200]}**."
-        ),
+        title="Check Out Confirmed",
+        description=confirmation_employee(employee_id),
         color=0xF23F43,
     )
 
     add_registration_times(embed, result["registered_at"], employee_zone)
     embed.add_field(
-        name="Original Check-In",
-        value=(
-            f"{result['check_in_date']} at "
-            f"{result['check_in_time']}"
-        ),
+        name="Original check-in",
+        value=f"{result['check_in_date']} · {result['check_in_time']}",
         inline=False,
     )
 
