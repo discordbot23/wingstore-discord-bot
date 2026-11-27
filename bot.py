@@ -418,7 +418,7 @@ async def notify_human_resources(
     today_date, _ = current_us_date_time()
 
     embed = discord.Embed(
-        title="🚨 Workday Incident",
+        title="🚨 Workday Incident 🚨",
         description=(
             "A new check-in was recorded while a previous workday "
             "remained open."
@@ -510,7 +510,7 @@ def build_check_in_embed(
 
     if incident:
         embed.add_field(
-            name="⚠️ Open Register-Time Notice",
+            name="⚠️ Open Register-Time Notice⚠️",
             value=(
                 "We noticed that your previous check-in from "
                 f"**{incident['previous_date']} at "
@@ -765,7 +765,7 @@ class CheckOutSelect(discord.ui.Select):
                 )
             else:
                 await interaction.followup.send(
-                    "⚠️ **Unable to record your check-out.**\n\n"
+                    "⚠️ **Unable to record your check-out.⚠️**\n\n"
                     f"{result['message']}",
                     ephemeral=True,
                 )
@@ -846,7 +846,7 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "⚠️ No Employee IDs are currently available in this group.",
+                "⚠️ No Employee IDs are currently available in this group.⚠️",
                 ephemeral=True,
             )
             return
@@ -874,7 +874,7 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "⚠️ No Employee IDs are currently available in this group.",
+                "⚠️ No Employee IDs are currently available in this group. ⚠️",
                 ephemeral=True,
             )
             return
@@ -1040,7 +1040,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="👋 Welcome! I'm Uncle Max",
+        name=" Welcome! I'm Uncle Max",
         value=(
             "I'm your virtual Time Assistant, here to help you manage "
             "your daily check-ins and check-outs.\n\n"
@@ -1050,7 +1050,7 @@ async def panel(ctx: commands.Context) -> None:
     )
 
     embed.add_field(
-        name="🏆 AREA OF THE MONTH - DEVELOPMENT 🏆",
+        name="🏆 PLAY US LEAGUE WINNERS - ARTURO PEREZ, RENNY RAMIREZ, GABRIEL PEREZ, OSWARD PACHECO. 🏆",
         value=(
             "**To be announced**\n\n"
         ),
@@ -1100,7 +1100,7 @@ async def panel_error(
     )
 
     await ctx.send(
-        "❌ We couldn't create the Workday Portal. "
+        "We couldn't create the Workday Portal. "
         "Please review the Render logs."
     )
 
