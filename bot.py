@@ -280,8 +280,13 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
     return run_google_with_retries_sync("load employees", operation)
 
 
-def employee_label(employee_id: str) -> str:
+def employee_display_name(employee_id: str) -> str:
     name, _ = EMPLOYEES_CACHE.get(employee_id, ("", None))
+    return name.title() if name.isupper() else name
+
+
+def employee_label(employee_id: str) -> str:
+    name = employee_display_name(employee_id)
     return f"{employee_id} · {name}" if name else employee_id
 
 
@@ -294,10 +299,21 @@ def sheet_timestamp(instant: datetime, zone: ZoneInfo) -> str:
     return f"{local.isoformat(sep=' ', timespec='seconds')} [{zone.key}]"
 
 
-def display_registration_time(instant: datetime, zone: ZoneInfo) -> str:
+def display_registration_time(
+    instant: datetime,
+    zone: ZoneInfo,
+    region: str,
+) -> str:
     local = instant.astimezone(zone)
-    time_text = local.strftime("%I:%M %p").lstrip("0")
-    return f"{local.strftime('%b')} {local.day}, {local.year} · {time_text}"
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    date = f"{local.strftime('%b')} {local.day}, {local.year}"
+    offset_minutes = int(local.utcoffset().total_seconds() / 60)
+    sign = "−" if offset_minutes < 0 else "+"
+    hours, minutes = divmod(abs(offset_minutes), 60)
+    offset = f"GMT{sign}{hours}"
+    if minutes:
+        offset += f":{minutes:02d}"
+    return f"**{clock}** · {date}\n{region} ({offset})"
 
 
 def add_registration_times(
@@ -307,20 +323,24 @@ def add_registration_times(
     *,
     private_confirmation: bool = True,
 ) -> None:
-    venezuela_time = display_registration_time(instant, VENEZUELA_TIMEZONE)
-    if private_confirmation:
-        local_label = "Your local time"
-        local_time = f"<t:{int(instant.timestamp())}:f>"
+    embed.add_field(
+        name="Venezuela time",
+        value=display_registration_time(instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"),
+        inline=False,
+    )
+
+    if employee_zone:
+        region = employee_zone.key.rsplit("/", 1)[-1].replace("_", " ")
+        local_time = display_registration_time(instant, employee_zone, region)
+    elif private_confirmation:
+        stamp = int(instant.timestamp())
+        local_time = f"<t:{stamp}:t> · <t:{stamp}:D>\nRegion and GMT offset unavailable"
     else:
-        local_label = "Employee local time"
-        local_time = (
-            display_registration_time(instant, employee_zone)
-            if employee_zone else "Time zone unavailable"
-        )
+        local_time = "Employee time zone unavailable"
 
     embed.add_field(
-        name="Registration time",
-        value=f"**{local_label}** · {local_time}\n**Venezuela** · {venezuela_time}",
+        name="Your local time" if private_confirmation else "Employee local time",
+        value=local_time,
         inline=False,
     )
 
@@ -607,12 +627,12 @@ async def notify_human_resources(
 # ============================================================
 
 def confirmation_employee(employee_id: str) -> str:
-    name, _ = EMPLOYEES_CACHE.get(employee_id, ("", None))
+    name = employee_display_name(employee_id)
     safe_id = discord.utils.escape_markdown(employee_id)
     if not name:
         return f"Employee ID · {safe_id}"
     safe_name = discord.utils.escape_markdown(name)
-    return f"**{safe_name}**\nEmployee ID · {safe_id}"
+    return f"{safe_name}\nEmployee ID · {safe_id}"
 
 
 def build_check_in_embed(
@@ -671,17 +691,17 @@ def build_check_out_embed(
 class WorkActivityModal(discord.ui.Modal):
     def __init__(self, employee_id: str):
         super().__init__(
-            title="TODAY'S REGISTER-TIME ACTIVITY",
+            title="Check In",
             timeout=300,
         )
 
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="What will you be working on today?",
+            label="Work activity",
             style=discord.TextStyle.paragraph,
             placeholder=(
-                "Enter your main task, such as Customer Support."
+                "Example: Review customer support tickets"
             ),
             required=True,
             max_length=300,
@@ -1132,51 +1152,16 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="WINGS STORE OFFICIAL REGISTER-TIME PORTAL",
-        description=(
-            "Welcome to the official Wings Store Register-Time System.\n"
-            "Use the buttons below to check in or check out."
-        ),
-        color=0x5865F2,
+        title="Wings Store | Workday Portal",
+        description="Choose Check In or Check Out for your employee ID range.",
+        color=0x142743,
     )
-
     embed.add_field(
-        name="👋 Welcome! I'm Uncle Max",
-        value=(
-            "I'm your virtual Time Assistant, here to help you manage "
-            "your daily check-ins and check-outs.\n\n"
-            "Please select an option below to get started."
-        ),
+        name="November League Playoff Winners",
+        value="Arturo Pérez · Renny Ramírez\nGabriel Pérez · Oswaldo Pacheco",
         inline=False,
     )
-
-    embed.add_field(
-        name="🏆 AREA OF THE MONTH - DEVELOPMENT 🏆",
-        value=(
-            "**To be announced**\n\n"
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="🟢 Check In 🟢",
-        value=(
-            "Start your workday using your assigned Employee ID."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="🔴 Check Out 🔴",
-        value=(
-            "Complete your workday using your assigned Employee ID."
-        ),
-        inline=False,
-    )
-
-    embed.set_footer(
-        text="Powered by Wings Store Human Resources"
-    )
+    embed.set_footer(text=PORTAL_FOOTER)
 
     await ctx.send(
         embed=embed,
