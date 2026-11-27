@@ -262,7 +262,7 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None, str]]:
     def operation() -> dict[str, tuple[str, ZoneInfo | None, str]]:
         assert employees_worksheet is not None
 
-        headers = employees_worksheet.get("1:3")
+        headers = employees_worksheet.get("1:20")
         name_column = employee_column(
             EMPLOYEE_NAME_COLUMN,
             headers,
@@ -275,12 +275,15 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None, str]]:
             default=1,
         )
         zone_column = employee_column(
-            EMPLOYEE_TIMEZONE_COLUMN,
+            "",
             headers,
             ("zona horaria", "zona horaria iana", "time zone", "timezone"),
             default=-1,
         )
 
+        override_zone_column = employee_column(
+            EMPLOYEE_TIMEZONE_COLUMN, headers, (), default=-1
+        )
         region_column = employee_column(
             "", headers, ("region", "ciudad", "region de trabajo"), default=-1
         )
@@ -298,18 +301,25 @@ def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None, str]]:
 
         employees = {}
         invalid_zone_ids = []
-        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column, country_column, region_column) + 1)
+        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column, override_zone_column, country_column, region_column) + 1)
         last_column = last_column.rstrip("4")
         for row in employees_worksheet.get(f"A4:{last_column}"):
             employee_id = cell(row, 0)
             if not employee_id:
                 continue
             name = cell(row, name_column)
-            zone_key = cell(row, zone_column) or country_timezone(cell(row, country_column))
             zone = None
-            if zone_key:
+            zone_keys = dict.fromkeys((
+                cell(row, override_zone_column),
+                cell(row, zone_column),
+                country_timezone(cell(row, country_column)),
+            ))
+            for zone_key in zone_keys:
+                if not zone_key:
+                    continue
                 try:
                     zone = ZoneInfo(zone_key)
+                    break
                 except (ZoneInfoNotFoundError, ValueError):
                     invalid_zone_ids.append(employee_id)
             previous_name, previous_zone, previous_region = employees.get(
