@@ -393,7 +393,7 @@ async def notify_human_resources(
     """
     Sends a workday incident notification to the private HR Discord channel.
 
-    Railway variable required:
+    Render environment variable required:
     HR_CHANNEL_ID=NUMERIC_DISCORD_CHANNEL_ID
     """
     if not HR_CHANNEL_ID:
@@ -478,6 +478,101 @@ async def notify_human_resources(
 
 
 # ============================================================
+# CONFIRMATION CARDS
+# ============================================================
+
+def build_check_in_embed(
+    employee_id: str,
+    check_in_time: str,
+    incident: dict | None,
+) -> discord.Embed:
+    today_date, _ = current_us_date_time()
+
+    embed = discord.Embed(
+        title="✅ Checked in",
+        description=(
+            f"You're all set, **{employee_id}**.\n"
+            "Your workday has started successfully."
+        ),
+        color=0x23A559,
+    )
+
+    embed.add_field(
+        name="Check-In Time",
+        value=check_in_time,
+        inline=True,
+    )
+    embed.add_field(
+        name="Date",
+        value=today_date,
+        inline=True,
+    )
+
+    if incident:
+        embed.add_field(
+            name="⚠️ Open Register-Time Notice",
+            value=(
+                "We noticed that your previous check-in from "
+                f"**{incident['previous_date']} at "
+                f"{incident['previous_time']}** does not have a "
+                "corresponding check-out.\n\n"
+                "Human Resources has already been notified and will "
+                "review this incident. You may continue without problem."
+            ),
+            inline=False,
+        )
+
+    embed.set_footer(
+        text="Have an amazing day, and thank you for being part of "
+        "Wings Store!"
+    )
+
+    return embed
+
+
+def build_check_out_embed(
+    employee_id: str,
+    result: dict,
+) -> discord.Embed:
+    today_date, _ = current_us_date_time()
+
+    embed = discord.Embed(
+        title="🏁 Workday completed",
+        description=(
+            f"Great work today, **{employee_id}**.\n"
+            "Your check-out has been successfully recorded."
+        ),
+        color=0xF23F43,
+    )
+
+    embed.add_field(
+        name="Check-Out Time",
+        value=result["check_out_time"],
+        inline=True,
+    )
+    embed.add_field(
+        name="Date",
+        value=today_date,
+        inline=True,
+    )
+    embed.add_field(
+        name="Original Check-In",
+        value=(
+            f"{result['check_in_date']} at "
+            f"{result['check_in_time']}"
+        ),
+        inline=False,
+    )
+
+    embed.set_footer(
+        text="Thank you for your hard work today. Have a wonderful "
+        "rest of your day!"
+    )
+
+    return embed
+
+
+# ============================================================
 # TODAY'S WORK ACTIVITY MODAL
 # ============================================================
 
@@ -491,7 +586,7 @@ class WorkActivityModal(discord.ui.Modal):
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="¿What will you be working on today?",
+            label="What will you be working on today?",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Example: Customer Support, Graphic Design, Recruitment..."
@@ -520,35 +615,20 @@ class WorkActivityModal(discord.ui.Modal):
                     str(interaction.user),
                 )
 
-            if incident:
-                await interaction.followup.send(
-                    "✅ **You're all set!**\n\n"
-                    "Your new workday has started successfully.\n"
-                    f"**Check-In Time:** {check_in_time}\n\n"
-                    "⚠️ **Open Register-Time Notice** ⚠️\n"
-                    "We noticed that your previous check-in from "
-                    f"**{incident['previous_date']} at "
-                    f"{incident['previous_time']}** does not have a "
-                    "corresponding check-out.\n\n"
-                    "Human Resources has already been notified and will review this incident. "
-                    "You may continue without problem",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                embed=build_check_in_embed(
+                    self.employee_id,
+                    check_in_time,
+                    incident,
+                ),
+                ephemeral=True,
+            )
 
+            if incident:
                 await notify_human_resources(
                     interaction,
                     incident,
                     check_in_time,
-                )
-
-            else:
-                await interaction.followup.send(
-                    "✅ **You're all set!**\n\n"
-                    "Your workday has started successfully.\n"
-                    f"**Check-In Time:** {check_in_time}\n\n"
-                    "Have an amazing day, and thank you for being part "
-                    "of Wings Store!",
-                    ephemeral=True,
                 )
 
         except Exception:
@@ -680,14 +760,7 @@ class CheckOutSelect(discord.ui.Select):
 
             if success:
                 await interaction.followup.send(
-                    "✅ **Workday completed!**\n\n"
-                    "Your check-out has been successfully recorded.\n"
-                    f"**Check-Out Time:** {result['check_out_time']}\n"
-                    "**Original Check-In:** "
-                    f"{result['check_in_date']} at "
-                    f"{result['check_in_time']}\n\n"
-                    "Thank you for your hard work today. Have a wonderful "
-                    "rest of your day!",
+                    embed=build_check_out_embed(employee_id, result),
                     ephemeral=True,
                 )
             else:
@@ -1028,7 +1101,7 @@ async def panel_error(
 
     await ctx.send(
         "❌ We couldn't create the Workday Portal. "
-        "Please review the Railway logs."
+        "Please review the Render logs."
     )
 
 
