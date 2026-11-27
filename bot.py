@@ -1972,9 +1972,32 @@ async def on_resumed() -> None:
     )
 
 
+def is_workday_panel(message: discord.Message, bot_user_id: int) -> bool:
+    if message.author.id != bot_user_id:
+        return False
+    components = list(message.components)
+    while components:
+        component = components.pop()
+        custom_id = getattr(component, "custom_id", None)
+        if custom_id and custom_id.startswith("uncle_max:portal:"):
+            return True
+        components.extend(getattr(component, "children", ()))
+    return False
+
+
 @bot.command(name="panel")
 @commands.guild_only()
+@commands.max_concurrency(1, per=commands.BucketType.channel, wait=True)
 async def panel(ctx: commands.Context) -> None:
+    existing_panels = []
+    try:
+        async for message in ctx.channel.history(limit=100):
+            if is_workday_panel(message, ctx.me.id):
+                existing_panels.append(message)
+    except discord.Forbidden:
+        await ctx.send("I need permission to read channel history to update the workday panel.")
+        return
+
     controls = WorkdayPortalView()
     check_in = discord.ui.ActionRow()
     check_out = discord.ui.ActionRow()
@@ -2023,7 +2046,23 @@ async def panel(ctx: commands.Context) -> None:
     layout.add_item(champions)
     mascot = discord.File(BytesIO(b64decode(UNCLE_MAX_ART)), filename=mascot_name)
     logo = discord.File(BytesIO(b64decode(WNG_LOGO_ART)), filename=logo_name)
-    await ctx.send(view=layout, files=[mascot, logo])
+    if not existing_panels:
+        await ctx.send(view=layout, files=[mascot, logo])
+        return
+
+    current, *duplicates = existing_panels
+    await current.edit(content=None, embeds=[], attachments=[mascot, logo], view=layout)
+    for duplicate in duplicates:
+        replacement = discord.ui.LayoutView()
+        replacement.add_item(discord.ui.TextDisplay(
+            f"This panel has moved. [Open the current workday panel]({current.jump_url})."
+        ))
+        try:
+            await duplicate.edit(content=None, embeds=[], attachments=[], view=replacement)
+        except discord.NotFound:
+            continue
+        except discord.HTTPException:
+            logger.exception("Could not archive duplicate workday panel %s.", duplicate.id)
 
 
 @panel.error
