@@ -8,7 +8,8 @@ import random
 import time
 from datetime import datetime
 from typing import Callable, TypeVar
-from zoneinfo import ZoneInfo
+from unicodedata import normalize
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 import gspread
@@ -36,17 +37,8 @@ EMPLOYEES_WORKSHEET_NAME = os.getenv(
     "EMPLEADOS Y CONTRATOS",
 )
 
-EMPLOYEE_NAME_COLUMN = os.getenv("EMPLOYEE_NAME_COLUMN", "B").strip().upper()
-
-if not EMPLOYEE_NAME_COLUMN or any(
-    letter not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for letter in EMPLOYEE_NAME_COLUMN
-):
-    raise RuntimeError("EMPLOYEE_NAME_COLUMN must be a Google Sheets column letter.")
-
-EMPLOYEE_NAME_INDEX = 0
-for letter in EMPLOYEE_NAME_COLUMN:
-    EMPLOYEE_NAME_INDEX = EMPLOYEE_NAME_INDEX * 26 + ord(letter) - ord("A") + 1
-EMPLOYEE_NAME_INDEX -= 1
+EMPLOYEE_NAME_COLUMN = os.getenv("EMPLOYEE_NAME_COLUMN", "").strip().upper()
+EMPLOYEE_TIMEZONE_COLUMN = os.getenv("EMPLOYEE_TIMEZONE_COLUMN", "").strip().upper()
 
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
@@ -75,6 +67,7 @@ except json.JSONDecodeError as exc:
 
 try:
     TIMEZONE = ZoneInfo(BOT_TIMEZONE)
+    VENEZUELA_TIMEZONE = ZoneInfo("America/Caracas")
 except Exception as exc:
     raise RuntimeError(
         f"The BOT_TIMEZONE value is invalid: {BOT_TIMEZONE}"
@@ -102,7 +95,7 @@ spreadsheet: gspread.Spreadsheet | None = None
 records_worksheet: gspread.Worksheet | None = None
 employees_worksheet: gspread.Worksheet | None = None
 
-EMPLOYEES_CACHE: dict[str, str] = {}
+EMPLOYEES_CACHE: dict[str, tuple[str, ZoneInfo | None]] = {}
 
 # Prevents two interactions in this process from editing the worksheet
 # at exactly the same time.
@@ -207,31 +200,136 @@ def run_google_with_retries_sync(
     raise last_error
 
 
-def load_employees_sync() -> dict[str, str]:
-    def operation() -> dict[str, str]:
+def employee_column(
+    configured: str,
+    headers: list[list[str]],
+    labels: tuple[str, ...],
+    default: int,
+) -> int:
+    if configured:
+        if any(letter not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for letter in configured):
+            raise ValueError(f"Invalid Sheets column: {configured}")
+        index = 0
+        for letter in configured:
+            index = index * 26 + ord(letter) - ord("A") + 1
+        if index < 2:
+            raise ValueError("Employee column A is reserved for the ID.")
+        return index - 1
+
+    for label in labels:
+        for row in reversed(headers):
+            for index, value in enumerate(row[1:], start=1):
+                text = normalize("NFKD", str(value)).encode("ascii", "ignore").decode()
+                if " ".join(text.casefold().split()) == label:
+                    return index
+    return default
+
+
+def load_employees_sync() -> dict[str, tuple[str, ZoneInfo | None]]:
+    def operation() -> dict[str, tuple[str, ZoneInfo | None]]:
         assert employees_worksheet is not None
 
-        rows = employees_worksheet.get(f"A4:{EMPLOYEE_NAME_COLUMN}")
+        headers = employees_worksheet.get("1:3")
+        name_column = employee_column(
+            EMPLOYEE_NAME_COLUMN,
+            headers,
+            (
+                "nombre completo", "full name", "employee name",
+                "nombre del colaborador", "nombre del prestador",
+                "nombre y apellido", "nombres y apellidos",
+                "nombre del empleado", "nombre", "name",
+            ),
+            default=1,
+        )
+        zone_column = employee_column(
+            EMPLOYEE_TIMEZONE_COLUMN,
+            headers,
+            ("zona horaria", "zona horaria iana", "time zone", "timezone"),
+            default=-1,
+        )
+
+        def cell(row: list[str], index: int) -> str:
+            if 0 <= index < len(row):
+                return " ".join(str(row[index] or "").split())
+            return ""
+
         employees = {}
-        for row in rows:
-            if not row:
-                continue
-            employee_id = str(row[0]).strip()
+        invalid_zone_ids = []
+        last_column = gspread.utils.rowcol_to_a1(4, max(name_column, zone_column) + 1)
+        last_column = last_column.rstrip("4")
+        for row in employees_worksheet.get(f"A4:{last_column}"):
+            employee_id = cell(row, 0)
             if not employee_id:
                 continue
-            name = ""
-            if EMPLOYEE_NAME_INDEX != 0 and len(row) > EMPLOYEE_NAME_INDEX:
-                name = " ".join(str(row[EMPLOYEE_NAME_INDEX]).split())
-            if employee_id not in employees or not employees[employee_id]:
-                employees[employee_id] = name
+            name = cell(row, name_column)
+            zone_key = cell(row, zone_column)
+            zone = None
+            if zone_key:
+                try:
+                    zone = ZoneInfo(zone_key)
+                except (ZoneInfoNotFoundError, ValueError):
+                    invalid_zone_ids.append(employee_id)
+            previous_name, previous_zone = employees.get(employee_id, ("", None))
+            employees[employee_id] = (previous_name or name, previous_zone or zone)
+        if employees and not any(name for name, _ in employees.values()):
+            logger.warning("No employee names found. Check EMPLOYEE_NAME_COLUMN.")
+        if invalid_zone_ids:
+            logger.warning("Invalid time zones for employee IDs: %s", ", ".join(invalid_zone_ids))
         return employees
 
     return run_google_with_retries_sync("load employees", operation)
 
 
 def employee_label(employee_id: str) -> str:
-    name = EMPLOYEES_CACHE.get(employee_id)
+    name, _ = EMPLOYEES_CACHE.get(employee_id, ("", None))
     return f"{employee_id} · {name}" if name else employee_id
+
+
+def employee_display(employee_id: str) -> str:
+    return discord.utils.escape_markdown(employee_label(employee_id))
+
+
+def sheet_timestamp(instant: datetime, zone: ZoneInfo) -> str:
+    local = instant.astimezone(zone)
+    return f"{local.isoformat(sep=' ', timespec='seconds')} [{zone.key}]"
+
+
+def add_registration_times(
+    embed: discord.Embed,
+    instant: datetime,
+    employee_zone: ZoneInfo | None,
+    *,
+    private_confirmation: bool = True,
+) -> None:
+    embed.add_field(
+        name="Venezuela Time",
+        value=sheet_timestamp(instant, VENEZUELA_TIMEZONE),
+        inline=True,
+    )
+    if private_confirmation:
+        embed.add_field(
+            name="Your Local Time",
+            value=f"<t:{int(instant.timestamp())}:f>",
+            inline=True,
+        )
+        if employee_zone:
+            embed.add_field(
+                name="Local Time Saved to Sheets",
+                value=sheet_timestamp(instant, employee_zone),
+                inline=False,
+            )
+    elif employee_zone:
+        embed.add_field(
+            name="Employee Local Time",
+            value=sheet_timestamp(instant, employee_zone),
+            inline=True,
+        )
+    else:
+        embed.add_field(
+            name="Employee Local Time",
+            value="No employee time zone configured.",
+            inline=True,
+        )
 
 
 def find_open_workday(
@@ -269,17 +367,20 @@ def record_check_in_sync(
     activity: str,
     discord_user: str,
     employee_name: str = "",
-) -> tuple[str, dict | None]:
+    employee_zone: ZoneInfo | None = None,
+) -> tuple[datetime, dict | None]:
     """
     Records a new check-in.
 
     If a previous workday is still open, the new check-in is still recorded.
     The previous row remains unchanged and is returned as an HR incident.
     """
-    def operation() -> tuple[str, dict | None]:
+    now = datetime.now(TIMEZONE)
+
+    def operation() -> tuple[datetime, dict | None]:
         assert records_worksheet is not None
 
-        records = records_worksheet.get("A:F")
+        records = records_worksheet.get("A:G")
         open_workday = find_open_workday(records, employee_id)
 
         incident = None
@@ -297,10 +398,8 @@ def record_check_in_sync(
                 "previous_time": format_us_time(row[2]),
             }
 
-        now = datetime.now(TIMEZONE)
         sheet_date = now.strftime("%Y-%m-%d")
         sheet_time = now.strftime("%H:%M")
-        display_time = now.strftime("%I:%M %p").lstrip("0")
 
         records_worksheet.append_row(
             [
@@ -310,12 +409,14 @@ def record_check_in_sync(
                 "",
                 activity.strip(),
                 discord_user,
-                f"'{employee_name}" if employee_name else "",  # Column G
+                f"'{employee_name}" if employee_name else "",  # G
+                sheet_timestamp(now, VENEZUELA_TIMEZONE),  # H
+                sheet_timestamp(now, employee_zone) if employee_zone else "",  # I
             ],
             value_input_option="USER_ENTERED",
         )
 
-        return display_time, incident
+        return now, incident
 
     return run_google_with_retries_sync(
         f"record check-in for {employee_id}",
@@ -326,13 +427,16 @@ def record_check_in_sync(
 def record_check_out_sync(
     employee_id: str,
     discord_user: str,
+    employee_name: str = "",
+    employee_zone: ZoneInfo | None = None,
 ) -> tuple[bool, dict]:
     del discord_user  # Reserved for future audit features.
+    now = datetime.now(TIMEZONE)
 
     def operation() -> tuple[bool, dict]:
         assert records_worksheet is not None
 
-        records = records_worksheet.get("A:F")
+        records = records_worksheet.get("A:G")
         open_workday = find_open_workday(records, employee_id)
 
         if not open_workday:
@@ -345,19 +449,25 @@ def record_check_out_sync(
             }
 
         row_number, row = open_workday
-        now = datetime.now(TIMEZONE)
         sheet_time = now.strftime("%H:%M")
-        display_time = now.strftime("%I:%M %p").lstrip("0")
 
-        records_worksheet.update(
-            range_name=f"D{row_number}",
-            values=[[sheet_time]],
-            value_input_option="USER_ENTERED",
-        )
+        updates = [
+            {"range": f"D{row_number}", "values": [[sheet_time]]},
+            {
+                "range": f"J{row_number}:K{row_number}",
+                "values": [[
+                    sheet_timestamp(now, VENEZUELA_TIMEZONE),
+                    sheet_timestamp(now, employee_zone) if employee_zone else "",
+                ]],
+            },
+        ]
+        if employee_name and (len(row) < 7 or not row[6]):
+            updates.append({"range": f"G{row_number}", "values": [[f"'{employee_name}"]]})
+        records_worksheet.batch_update(updates, value_input_option="USER_ENTERED")
 
         return True, {
             "employee_id": employee_id,
-            "check_out_time": display_time,
+            "registered_at": now,
             "check_in_date": format_us_date(row[0]),
             "check_in_time": format_us_time(row[2]),
         }
@@ -407,15 +517,14 @@ def get_employee_id_group(group_number: int) -> list[str]:
 # HUMAN RESOURCES NOTIFICATIONS
 # ============================================================
 
-NAVY = 0x142743
-ORANGE = 0xF58A24
 PORTAL_FOOTER = "Wings Store • Human Resources"
 
 
 async def notify_human_resources(
     interaction: discord.Interaction,
     incident: dict,
-    new_check_in_time: str,
+    registered_at: datetime,
+    employee_zone: ZoneInfo | None,
 ) -> None:
     """
     Sends a workday incident notification to the private HR Discord channel.
@@ -442,21 +551,19 @@ async def notify_human_resources(
             )
             return
 
-    today_date, _ = current_us_date_time()
-
     embed = discord.Embed(
-        title="Workday Incident",
+        title="🚨 Workday Incident",
         description=(
             "A new check-in was recorded while a previous workday "
             "remained open."
         ),
-        color=ORANGE,
-        timestamp=datetime.now(TIMEZONE),
+        color=0xF59E0B,
+        timestamp=registered_at,
     )
 
     embed.add_field(
         name="Employee",
-        value=discord.utils.escape_markdown(employee_label(incident["employee_id"]))[:1024],
+        value=employee_display(incident["employee_id"])[:1024],
         inline=True,
     )
     embed.add_field(
@@ -472,10 +579,8 @@ async def notify_human_resources(
         ),
         inline=False,
     )
-    embed.add_field(
-        name="New Check-In",
-        value=f"{today_date}\n{new_check_in_time}",
-        inline=True,
+    add_registration_times(
+        embed, registered_at, employee_zone, private_confirmation=False
     )
     embed.add_field(
         name="Google Sheets Row",
@@ -510,29 +615,19 @@ async def notify_human_resources(
 
 def build_check_in_embed(
     employee_id: str,
-    check_in_time: str,
+    registered_at: datetime,
     incident: dict | None,
+    employee_zone: ZoneInfo | None,
 ) -> discord.Embed:
-    today_date, _ = current_us_date_time()
-
     embed = discord.Embed(
-        title="Check In Confirmed",
+        title="✅ Checked in",
         description=(
-            f"Your check-in was recorded for **{discord.utils.escape_markdown(employee_label(employee_id))[:200]}**."
+            f"Your check-in was recorded for **{employee_display(employee_id)[:200]}**."
         ),
-        color=NAVY,
+        color=0x23A559,
     )
 
-    embed.add_field(
-        name="Check-In Time",
-        value=check_in_time,
-        inline=True,
-    )
-    embed.add_field(
-        name="Date",
-        value=today_date,
-        inline=True,
-    )
+    add_registration_times(embed, registered_at, employee_zone)
 
     if incident:
         embed.add_field(
@@ -554,27 +649,17 @@ def build_check_in_embed(
 def build_check_out_embed(
     employee_id: str,
     result: dict,
+    employee_zone: ZoneInfo | None,
 ) -> discord.Embed:
-    today_date, _ = current_us_date_time()
-
     embed = discord.Embed(
-        title="Check Out Confirmed",
+        title="🏁 Workday completed",
         description=(
-            f"Your check-out was recorded for **{discord.utils.escape_markdown(employee_label(employee_id))[:200]}**."
+            f"Your check-out was recorded for **{employee_display(employee_id)[:200]}**."
         ),
-        color=ORANGE,
+        color=0xF23F43,
     )
 
-    embed.add_field(
-        name="Check-Out Time",
-        value=result["check_out_time"],
-        inline=True,
-    )
-    embed.add_field(
-        name="Date",
-        value=today_date,
-        inline=True,
-    )
+    add_registration_times(embed, result["registered_at"], employee_zone)
     embed.add_field(
         name="Original Check-In",
         value=(
@@ -596,14 +681,14 @@ def build_check_out_embed(
 class WorkActivityModal(discord.ui.Modal):
     def __init__(self, employee_id: str):
         super().__init__(
-            title="Check In · Work Activity",
+            title="TODAY'S REGISTER-TIME ACTIVITY",
             timeout=300,
         )
 
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="Planned work activity",
+            label="What will you be working on today?",
             style=discord.TextStyle.paragraph,
             placeholder=(
                 "Enter your main task, such as Customer Support."
@@ -623,21 +708,24 @@ class WorkActivityModal(discord.ui.Modal):
             thinking=True,
         )
 
+        employee_name, employee_zone = EMPLOYEES_CACHE.get(self.employee_id, ("", None))
         try:
             async with SHEETS_LOCK:
-                check_in_time, incident = await asyncio.to_thread(
+                registered_at, incident = await asyncio.to_thread(
                     record_check_in_sync,
                     self.employee_id,
                     str(self.activity.value),
                     str(interaction.user),
-                    EMPLOYEES_CACHE.get(self.employee_id, ""),
+                    employee_name,
+                    employee_zone,
                 )
 
             await interaction.followup.send(
                 embed=build_check_in_embed(
                     self.employee_id,
-                    check_in_time,
+                    registered_at,
                     incident,
+                    employee_zone,
                 ),
                 ephemeral=True,
             )
@@ -646,7 +734,8 @@ class WorkActivityModal(discord.ui.Modal):
                 await notify_human_resources(
                     interaction,
                     incident,
-                    check_in_time,
+                    registered_at,
+                    employee_zone,
                 )
 
         except Exception:
@@ -767,6 +856,7 @@ class CheckOutSelect(discord.ui.Select):
         )
 
         employee_id = self.values[0]
+        employee_name, employee_zone = EMPLOYEES_CACHE.get(employee_id, ("", None))
 
         try:
             async with SHEETS_LOCK:
@@ -774,15 +864,17 @@ class CheckOutSelect(discord.ui.Select):
                     record_check_out_sync,
                     employee_id,
                     str(interaction.user),
+                    employee_name,
+                    employee_zone,
                 )
 
             if success:
                 await interaction.followup.send(
-                    embed=build_check_out_embed(employee_id, result),
+                    embed=build_check_out_embed(employee_id, result, employee_zone),
                     ephemeral=True,
                 )
             else:
-                display_name = discord.utils.escape_markdown(employee_label(employee_id))[:200]
+                display_name = employee_display(employee_id)[:200]
                 message = result["message"].replace(f"**{employee_id}**", f"**{display_name}**")
                 await interaction.followup.send(
                     f"**Check Out Unavailable**\n\n{message}",
@@ -871,14 +963,7 @@ class WorkdayPortalView(discord.ui.View):
             return
 
         await send_response(
-            embed=discord.Embed(
-                title="Check In",
-                description=(
-                    "Select your Employee ID"
-                    ", then enter your planned activity to check in."
-                ),
-                color=NAVY,
-            ),
+            "**Select your Employee ID:**",
             view=CheckInSelectView(group_number),
             ephemeral=True,
         )
@@ -906,21 +991,14 @@ class WorkdayPortalView(discord.ui.View):
             return
 
         await send_response(
-            embed=discord.Embed(
-                title="Check Out",
-                description=(
-                    "Select your Employee ID"
-                    " to record your check-out."
-                ),
-                color=ORANGE,
-            ),
+            "**Select your Employee ID:**",
             view=CheckOutSelectView(group_number),
             ephemeral=True,
         )
 
     @discord.ui.button(
-        label="Check In · WS-001–WS-027",
-        style=discord.ButtonStyle.primary,
+        label="Check In (WS-001–027)",
+        style=discord.ButtonStyle.success,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
     )
@@ -933,8 +1011,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check In · WS-028–WS-050",
-        style=discord.ButtonStyle.primary,
+        label="Check In (WS-028–050)",
+        style=discord.ButtonStyle.success,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
     )
@@ -947,8 +1025,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 2)
 
     @discord.ui.button(
-        label="Check Out · WS-001–WS-027",
-        style=discord.ButtonStyle.secondary,
+        label="Check Out (WS-001–027)",
+        style=discord.ButtonStyle.danger,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
     )
@@ -961,8 +1039,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_out_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check Out · WS-028–WS-050",
-        style=discord.ButtonStyle.secondary,
+        label="Check Out (WS-028–050)",
+        style=discord.ButtonStyle.danger,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
     )
@@ -1064,30 +1142,51 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="Wings Store Workday Portal",
+        title="WINGS STORE OFFICIAL REGISTER-TIME PORTAL",
         description=(
-            "Choose Check In or Check Out using the button that matches "
-            "your assigned Employee ID range."
+            "Welcome to the official Wings Store Register-Time System.\n"
+            "Use the buttons below to check in or check out."
         ),
-        color=NAVY,
+        color=0x5865F2,
     )
-    embed.set_author(name="Uncle Max • Wings Store")
+
     embed.add_field(
-        name="Check In",
-        value="Select your Employee ID and enter your planned work activity.",
-        inline=True,
-    )
-    embed.add_field(
-        name="Check Out",
-        value="Select your Employee ID to close your open workday.",
-        inline=True,
-    )
-    embed.add_field(
-        name="🏆 Area of the Month — Development",
-        value="To be announced.",
+        name="👋 Welcome! I'm Uncle Max",
+        value=(
+            "I'm your virtual Time Assistant, here to help you manage "
+            "your daily check-ins and check-outs.\n\n"
+            "Please select an option below to get started."
+        ),
         inline=False,
     )
-    embed.set_footer(text=PORTAL_FOOTER)
+
+    embed.add_field(
+        name="🏆 AREA OF THE MONTH - DEVELOPMENT 🏆",
+        value=(
+            "**To be announced**\n\n"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="🟢 Check In 🟢",
+        value=(
+            "Start your workday using your assigned Employee ID."
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="🔴 Check Out 🔴",
+        value=(
+            "Complete your workday using your assigned Employee ID."
+        ),
+        inline=False,
+    )
+
+    embed.set_footer(
+        text="Powered by Wings Store Human Resources"
+    )
 
     await ctx.send(
         embed=embed,
