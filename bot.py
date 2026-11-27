@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import logging
@@ -385,6 +384,11 @@ def get_employee_id_group(group_number: int) -> list[str]:
 # HUMAN RESOURCES NOTIFICATIONS
 # ============================================================
 
+NAVY = 0x142743
+ORANGE = 0xF58A24
+PORTAL_FOOTER = "Wings Store • Human Resources"
+
+
 async def notify_human_resources(
     interaction: discord.Interaction,
     incident: dict,
@@ -418,12 +422,12 @@ async def notify_human_resources(
     today_date, _ = current_us_date_time()
 
     embed = discord.Embed(
-        title="🚨 Workday Incident 🚨",
+        title="Workday Incident",
         description=(
             "A new check-in was recorded while a previous workday "
             "remained open."
         ),
-        color=0xF59E0B,
+        color=ORANGE,
         timestamp=datetime.now(TIMEZONE),
     )
 
@@ -489,12 +493,11 @@ def build_check_in_embed(
     today_date, _ = current_us_date_time()
 
     embed = discord.Embed(
-        title="✅ Checked in",
+        title="Check In Confirmed",
         description=(
-            f"You're all set, **{employee_id}**.\n"
-            "Your workday has started successfully."
+            f"Your check-in was recorded for **{employee_id}**."
         ),
-        color=0x23A559,
+        color=NAVY,
     )
 
     embed.add_field(
@@ -510,22 +513,17 @@ def build_check_in_embed(
 
     if incident:
         embed.add_field(
-            name="⚠️ Open Register-Time Notice⚠️",
+            name="Previous Workday Still Open",
             value=(
-                "We noticed that your previous check-in from "
-                f"**{incident['previous_date']} at "
-                f"{incident['previous_time']}** does not have a "
-                "corresponding check-out.\n\n"
-                "Human Resources has already been notified and will "
-                "review this incident. You may continue without problem."
+                f"The check-in from **{incident['previous_date']} at "
+                f"{incident['previous_time']}** has no recorded check-out. "
+                "Your new check-in is recorded. Human Resources will review "
+                "the previous workday."
             ),
             inline=False,
         )
 
-    embed.set_footer(
-        text="Have an amazing day, and thank you for being part of "
-        "Wings Store!"
-    )
+    embed.set_footer(text=PORTAL_FOOTER)
 
     return embed
 
@@ -537,12 +535,11 @@ def build_check_out_embed(
     today_date, _ = current_us_date_time()
 
     embed = discord.Embed(
-        title="🏁 Workday completed",
+        title="Check Out Confirmed",
         description=(
-            f"Great work today, **{employee_id}**.\n"
-            "Your check-out has been successfully recorded."
+            f"Your check-out was recorded for **{employee_id}**."
         ),
-        color=0xF23F43,
+        color=ORANGE,
     )
 
     embed.add_field(
@@ -564,10 +561,7 @@ def build_check_out_embed(
         inline=False,
     )
 
-    embed.set_footer(
-        text="Thank you for your hard work today. Have a wonderful "
-        "rest of your day!"
-    )
+    embed.set_footer(text=PORTAL_FOOTER)
 
     return embed
 
@@ -579,17 +573,17 @@ def build_check_out_embed(
 class WorkActivityModal(discord.ui.Modal):
     def __init__(self, employee_id: str):
         super().__init__(
-            title="TODAY'S REGISTER-TIME ACTIVITY",
+            title="Check In · Work Activity",
             timeout=300,
         )
 
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="What will you be working on today?",
+            label="Planned work activity",
             style=discord.TextStyle.paragraph,
             placeholder=(
-                "Example: Customer Support, Graphic Design, Recruitment..."
+                "Enter your main task, such as Customer Support."
             ),
             required=True,
             max_length=300,
@@ -639,7 +633,7 @@ class WorkActivityModal(discord.ui.Modal):
             )
 
             await interaction.followup.send(
-                "❌ **We couldn't complete your check-in.**\n\n"
+                "**Check In Failed**\n\n"
                 "Please try again in a few moments. If the issue continues, "
                 "contact the Human Resources Department.",
                 ephemeral=True,
@@ -656,7 +650,7 @@ class WorkActivityModal(discord.ui.Modal):
         )
 
         message = (
-            "❌ An unexpected error occurred. Please try again or contact "
+            "An unexpected error occurred. Please try again or contact "
             "the Human Resources Department."
         )
 
@@ -689,10 +683,10 @@ class CheckInSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Select your Employee ID (WS-001–WS-027)"
+            placeholder = "Employee ID · WS-001–WS-027"
             custom_id = "uncle_max:check_in_select:1"
         else:
-            placeholder = "Select your Employee ID (WS-028–WS-050)"
+            placeholder = "Employee ID · WS-028–WS-050"
             custom_id = "uncle_max:check_in_select:2"
 
         super().__init__(
@@ -725,10 +719,10 @@ class CheckOutSelect(discord.ui.Select):
         ]
 
         if group_number == 1:
-            placeholder = "Select your Employee ID (WS-001–WS-027)"
+            placeholder = "Employee ID · WS-001–WS-027"
             custom_id = "uncle_max:check_out_select:1"
         else:
-            placeholder = "Select your Employee ID (WS-028–WS-050)"
+            placeholder = "Employee ID · WS-028–WS-050"
             custom_id = "uncle_max:check_out_select:2"
 
         super().__init__(
@@ -765,7 +759,7 @@ class CheckOutSelect(discord.ui.Select):
                 )
             else:
                 await interaction.followup.send(
-                    "⚠️ **Unable to record your check-out.⚠️**\n\n"
+                    "**Check Out Unavailable**\n\n"
                     f"{result['message']}",
                     ephemeral=True,
                 )
@@ -778,7 +772,7 @@ class CheckOutSelect(discord.ui.Select):
             )
 
             await interaction.followup.send(
-                "❌ **We couldn't complete your check-out.**\n\n"
+                "**Check Out Failed**\n\n"
                 "Please try again in a few moments. If the issue continues, "
                 "contact the Human Resources Department.",
                 ephemeral=True,
@@ -821,7 +815,7 @@ class WorkdayPortalView(discord.ui.View):
 
         if not updated:
             await interaction.followup.send(
-                "❌ We couldn't load the Employee ID list right now. "
+                "The Employee ID list is temporarily unavailable. "
                 "Please try again in a few seconds.",
                 ephemeral=True,
             )
@@ -846,13 +840,20 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "⚠️ No Employee IDs are currently available in this group.⚠️",
+                "No Employee IDs are available in this range.",
                 ephemeral=True,
             )
             return
 
         await send_response(
-            "**Select your Employee ID:**",
+            embed=discord.Embed(
+                title="Check In",
+                description=(
+                    "Select your Employee ID"
+                    ", then enter your planned activity to check in."
+                ),
+                color=NAVY,
+            ),
             view=CheckInSelectView(group_number),
             ephemeral=True,
         )
@@ -874,20 +875,27 @@ class WorkdayPortalView(discord.ui.View):
 
         if not employee_ids:
             await send_response(
-                "⚠️ No Employee IDs are currently available in this group. ⚠️",
+                "No Employee IDs are available in this range.",
                 ephemeral=True,
             )
             return
 
         await send_response(
-            "**Select your Employee ID:**",
+            embed=discord.Embed(
+                title="Check Out",
+                description=(
+                    "Select your Employee ID"
+                    " to record your check-out."
+                ),
+                color=ORANGE,
+            ),
             view=CheckOutSelectView(group_number),
             ephemeral=True,
         )
 
     @discord.ui.button(
-        label="Check In (WS-001–027)",
-        style=discord.ButtonStyle.success,
+        label="Check In · WS-001–WS-027",
+        style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
     )
@@ -900,8 +908,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check In (WS-028–050)",
-        style=discord.ButtonStyle.success,
+        label="Check In · WS-028–WS-050",
+        style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
     )
@@ -914,8 +922,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 2)
 
     @discord.ui.button(
-        label="Check Out (WS-001–027)",
-        style=discord.ButtonStyle.danger,
+        label="Check Out · WS-001–WS-027",
+        style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
     )
@@ -928,8 +936,8 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_out_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check Out (WS-028–050)",
-        style=discord.ButtonStyle.danger,
+        label="Check Out · WS-028–WS-050",
+        style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
     )
@@ -954,7 +962,7 @@ class WorkdayPortalView(discord.ui.View):
         )
 
         message = (
-            "❌ We couldn't process that request. Please try again."
+            "The request could not be processed. Please try again."
         )
 
         if interaction.response.is_done():
@@ -1031,51 +1039,30 @@ async def on_resumed() -> None:
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="WINGS STORE OFFICIAL REGISTER-TIME PORTAL",
+        title="Wings Store Workday Portal",
         description=(
-            "Welcome to the official Wings Store Register-Time System.\n"
-            "Use the buttons below to check in or check out."
+            "Choose Check In or Check Out using the button that matches "
+            "your assigned Employee ID range."
         ),
-        color=0x5865F2,
+        color=NAVY,
     )
-
+    embed.set_author(name="Uncle Max • Wings Store")
     embed.add_field(
-        name=" Welcome! I'm Uncle Max",
-        value=(
-            "I'm your virtual Time Assistant, here to help you manage "
-            "your daily check-ins and check-outs.\n\n"
-            "Please select an option below to get started."
-        ),
+        name="Check In",
+        value="Select your Employee ID and enter your planned work activity.",
+        inline=True,
+    )
+    embed.add_field(
+        name="Check Out",
+        value="Select your Employee ID to close your open workday.",
+        inline=True,
+    )
+    embed.add_field(
+        name="🏆 Area of the Month — Development",
+        value="To be announced.",
         inline=False,
     )
-
-    embed.add_field(
-        name="🏆 PLAY US LEAGUE WINNERS - ARTURO PEREZ, RENNY RAMIREZ, GABRIEL PEREZ, OSWARD PACHECO. 🏆",
-        value=(
-            "**To be announced**\n\n"
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="🟢 Check In 🟢",
-        value=(
-            "Start your workday using your assigned Employee ID."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="🔴 Check Out 🔴",
-        value=(
-            "Complete your workday using your assigned Employee ID."
-        ),
-        inline=False,
-    )
-
-    embed.set_footer(
-        text="Powered by Wings Store Human Resources"
-    )
+    embed.set_footer(text=PORTAL_FOOTER)
 
     await ctx.send(
         embed=embed,
