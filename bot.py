@@ -1059,7 +1059,7 @@ class WorkdayPortalView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="WS-001–027",
+        label="Check In · 001–027",
         style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
@@ -1073,7 +1073,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 1)
 
     @discord.ui.button(
-        label="WS-028–050",
+        label="Check In · 028–050",
         style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
@@ -1087,7 +1087,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 2)
 
     @discord.ui.button(
-        label="WS-001–027",
+        label="Check Out · 001–027",
         style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
@@ -1101,7 +1101,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_out_menu(interaction, 1)
 
     @discord.ui.button(
-        label="WS-028–050",
+        label="Check Out · 028–050",
         style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
@@ -1214,15 +1214,11 @@ async def panel(ctx: commands.Context) -> None:
 
     card = discord.ui.Container(
         discord.ui.TextDisplay(
-            "-# WINGS STORE · PEOPLE OPERATIONS\n"
-            "## Workday Portal\n"
-            "Welcome! I'm Uncle Max. Select the button for your employee ID range."
+            "## Wings Store\n"
+            "-# TIME & ATTENDANCE\n\n"
+            "Welcome! I'm Uncle Max. Choose an action for your employee ID range."
         ),
-        discord.ui.Separator(),
-        discord.ui.TextDisplay("**Check In**\nStart your workday and enter your planned activity."),
         check_in,
-        discord.ui.Separator(),
-        discord.ui.TextDisplay("**Check Out**\nRecord the end of your workday."),
         check_out,
         discord.ui.Separator(),
         discord.ui.TextDisplay(
