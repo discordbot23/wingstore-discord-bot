@@ -2029,10 +2029,11 @@ async def panel(ctx: commands.Context) -> None:
     champions = discord.ui.Container(
         discord.ui.Section(
             discord.ui.TextDisplay(
-                "-# HAPPY THANKSGIVING DAY\n"
+                "-# NOVEMBER BENEFITS \n"
                 "### Play Us League Champions\n"
                 "**Arturo Pérez** · **Renny Ramírez**\n"
                 "**Gabriel Pérez** · **Osward Pacheco**"
+                "-# HAPPY THANKSGIVING DAY \n"
             ),
             accessory=discord.ui.Thumbnail(
                 f"attachment://{logo_name}",
@@ -2046,23 +2047,18 @@ async def panel(ctx: commands.Context) -> None:
     layout.add_item(champions)
     mascot = discord.File(BytesIO(b64decode(UNCLE_MAX_ART)), filename=mascot_name)
     logo = discord.File(BytesIO(b64decode(WNG_LOGO_ART)), filename=logo_name)
-    if not existing_panels:
-        await ctx.send(view=layout, files=[mascot, logo])
-        return
-
-    current, *duplicates = existing_panels
-    await current.edit(content=None, embeds=[], attachments=[mascot, logo], view=layout)
-    for duplicate in duplicates:
+    current = await ctx.send(view=layout, files=[mascot, logo])
+    for previous in existing_panels:
         replacement = discord.ui.LayoutView()
         replacement.add_item(discord.ui.TextDisplay(
-            f"This panel has moved. [Open the current workday panel]({current.jump_url})."
+            f"[Open the current workday panel]({current.jump_url})."
         ))
         try:
-            await duplicate.edit(content=None, embeds=[], attachments=[], view=replacement)
+            await previous.edit(content=None, embeds=[], attachments=[], view=replacement)
         except discord.NotFound:
             continue
         except discord.HTTPException:
-            logger.exception("Could not archive duplicate workday panel %s.", duplicate.id)
+            logger.exception("Could not retire previous workday panel %s.", previous.id)
 
 
 @panel.error
