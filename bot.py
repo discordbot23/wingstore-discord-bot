@@ -634,7 +634,6 @@ def record_check_out_sync(
         return True, {
             "employee_id": employee_id,
             "registered_at": now,
-            "check_in_at": check_in_at,
             "activity": row[4],
             "today_minutes": today_minutes,
         }
@@ -1402,7 +1401,7 @@ async def notify_human_resources(
     )
 
     try:
-        await channel.send(embed=embed)
+        await send_mascot_card(channel.send, embed=embed)
         logger.info(
             "Workday incident sent to Human Resources | Employee=%s | Row=%s",
             incident["employee_id"],
@@ -1417,6 +1416,13 @@ async def notify_human_resources(
 # ============================================================
 # CONFIRMATION CARDS
 # ============================================================
+
+async def send_mascot_card(sender, *, embed: discord.Embed, **options) -> None:
+    filename = "uncle-max.png"
+    embed.set_thumbnail(url=f"attachment://{filename}")
+    mascot = discord.File(BytesIO(b64decode(UNCLE_MAX_ART)), filename=filename)
+    await sender(embed=embed, file=mascot, **options)
+
 
 def registration_notice(title: str, message: str, *, color: int) -> discord.Embed:
     return discord.Embed(title=title, description=message, color=color)
@@ -1478,13 +1484,6 @@ def build_check_out_embed(
 
     registered_at = result["registered_at"]
     add_registration_times(embed, registered_at, employee_zone, employee_id=employee_id)
-    check_in_at = result["check_in_at"]
-    original_time = (
-        display_registration_time(check_in_at, VENEZUELA_TIMEZONE, GENERAL_TIME_LABEL)
-        if check_in_at else "Time unavailable in the original record."
-    )
-    embed.add_field(name="Original Check-In", value=original_time, inline=False)
-
     activity = discord.utils.escape_markdown(str(result["activity"]).strip())
     embed.add_field(name="Work Activity", value=activity[:1024] or "None recorded", inline=False)
     general_date = registered_at.astimezone(VENEZUELA_TIMEZONE)
@@ -1546,7 +1545,8 @@ class WorkActivityModal(discord.ui.Modal):
                     employee_zone,
                 )
 
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=build_check_in_embed(
                     self.employee_id,
                     registered_at,
@@ -1571,7 +1571,8 @@ class WorkActivityModal(discord.ui.Modal):
                 interaction.user,
             )
 
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=registration_notice(
                     "Check In could not be confirmed",
                     "Check whether the entry was saved before trying again. "
@@ -1598,12 +1599,14 @@ class WorkActivityModal(discord.ui.Modal):
         )
 
         if interaction.response.is_done():
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=notice,
                 ephemeral=True,
             )
         else:
-            await interaction.response.send_message(
+            await send_mascot_card(
+                interaction.response.send_message,
                 embed=notice,
                 ephemeral=True,
             )
@@ -1712,14 +1715,16 @@ class CheckOutSelect(discord.ui.Select):
                 )
 
             if success:
-                await interaction.followup.send(
+                await send_mascot_card(
+                    interaction.followup.send,
                     embed=build_check_out_embed(employee_id, result, employee_zone),
                     ephemeral=True,
                 )
             else:
                 display_name = employee_display(employee_id)[:200]
                 message = result["message"].replace(f"**{employee_id}**", f"**{display_name}**")
-                await interaction.followup.send(
+                await send_mascot_card(
+                    interaction.followup.send,
                     embed=registration_notice(
                         "Check Out unavailable", message, color=STATUS_AMBER
                     ),
@@ -1733,7 +1738,8 @@ class CheckOutSelect(discord.ui.Select):
                 interaction.user,
             )
 
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=registration_notice(
                     "Check Out could not be confirmed",
                     "Check whether the entry was saved before trying again. "
@@ -1779,7 +1785,8 @@ class WorkdayPortalView(discord.ui.View):
         updated = await refresh_employee_ids_cache()
 
         if not updated:
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=registration_notice(
                     "Employee list unavailable",
                     "Please try again in a few seconds.",
@@ -1807,7 +1814,8 @@ class WorkdayPortalView(discord.ui.View):
         employee_ids = get_employee_id_group(group_number)
 
         if not employee_ids:
-            await send_response(
+            await send_mascot_card(
+                send_response,
                 embed=registration_notice(
                     "No employees in this range",
                     "Check your employee ID and choose the matching range.",
@@ -1817,8 +1825,9 @@ class WorkdayPortalView(discord.ui.View):
             )
             return
 
-        await send_response(
-            "**Check In** · Select your name.",
+        await send_mascot_card(
+            send_response,
+            embed=registration_notice("Check In", "Select your name.", color=WINGS_NAVY),
             view=CheckInSelectView(group_number),
             ephemeral=True,
         )
@@ -1839,7 +1848,8 @@ class WorkdayPortalView(discord.ui.View):
         employee_ids = get_employee_id_group(group_number)
 
         if not employee_ids:
-            await send_response(
+            await send_mascot_card(
+                send_response,
                 embed=registration_notice(
                     "No employees in this range",
                     "Check your employee ID and choose the matching range.",
@@ -1849,8 +1859,9 @@ class WorkdayPortalView(discord.ui.View):
             )
             return
 
-        await send_response(
-            "**Check Out** · Select your name.",
+        await send_mascot_card(
+            send_response,
+            embed=registration_notice("Check Out", "Select your name.", color=WINGS_NAVY),
             view=CheckOutSelectView(group_number),
             ephemeral=True,
         )
@@ -1930,12 +1941,14 @@ class WorkdayPortalView(discord.ui.View):
         )
 
         if interaction.response.is_done():
-            await interaction.followup.send(
+            await send_mascot_card(
+                interaction.followup.send,
                 embed=notice,
                 ephemeral=True,
             )
         else:
-            await interaction.response.send_message(
+            await send_mascot_card(
+                interaction.response.send_message,
                 embed=notice,
                 ephemeral=True,
             )
@@ -2112,7 +2125,14 @@ async def panel(ctx: commands.Context) -> None:
             if is_workday_panel(message, ctx.me.id):
                 existing_panels.append(message)
     except discord.Forbidden:
-        await ctx.send("I need permission to read channel history to update the workday panel.")
+        await send_mascot_card(
+            ctx.send,
+            embed=registration_notice(
+                "Panel unavailable",
+                "I need permission to read channel history to update the workday panel.",
+                color=STATUS_AMBER,
+            ),
+        )
         return
 
     controls = WorkdayPortalView()
@@ -2185,8 +2205,13 @@ async def panel_error(
     error: commands.CommandError,
 ) -> None:
     if isinstance(error, commands.NoPrivateMessage):
-        await ctx.send(
-            "This command can only be used inside the Wings Store server."
+        await send_mascot_card(
+            ctx.send,
+            embed=registration_notice(
+                "Panel unavailable",
+                "This command can only be used inside the Wings Store server.",
+                color=STATUS_AMBER,
+            ),
         )
         return
 
@@ -2195,9 +2220,13 @@ async def panel_error(
         exc_info=error,
     )
 
-    await ctx.send(
-        "We couldn't create the Workday Portal. "
-        "Please review the Render logs."
+    await send_mascot_card(
+        ctx.send,
+        embed=registration_notice(
+            "Panel could not be created",
+            "Please review the Render logs.",
+            color=STATUS_RED,
+        ),
     )
 
 
