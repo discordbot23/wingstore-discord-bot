@@ -1059,7 +1059,7 @@ class WorkdayPortalView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="Check In (WS-001–027)",
+        label="WS-001–027",
         style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:1",
         row=0,
@@ -1073,7 +1073,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check In (WS-028–050)",
+        label="WS-028–050",
         style=discord.ButtonStyle.primary,
         custom_id="uncle_max:portal:check_in:2",
         row=0,
@@ -1087,7 +1087,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_in_menu(interaction, 2)
 
     @discord.ui.button(
-        label="Check Out (WS-001–027)",
+        label="WS-001–027",
         style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:1",
         row=1,
@@ -1101,7 +1101,7 @@ class WorkdayPortalView(discord.ui.View):
         await self.send_check_out_menu(interaction, 1)
 
     @discord.ui.button(
-        label="Check Out (WS-028–050)",
+        label="WS-028–050",
         style=discord.ButtonStyle.secondary,
         custom_id="uncle_max:portal:check_out:2",
         row=1,
@@ -1203,36 +1203,38 @@ async def on_resumed() -> None:
 @bot.command(name="panel")
 @commands.guild_only()
 async def panel(ctx: commands.Context) -> None:
-    embed = discord.Embed(
-        title="Workday Portal",
-        description=(
-            "Welcome. I'm Uncle Max, your time registration assistant. "
-            "To record your hours, select the action for your employee ID range."
-        ),
-        color=WINGS_NAVY,
-    )
-    embed.set_author(name="Wings Store")
-    embed.add_field(
-        name="Check In",
-        value="Start your workday and enter your planned activity.",
-        inline=False,
-    )
-    embed.add_field(
-        name="Check Out",
-        value="Record the end of your workday.",
-        inline=False,
-    )
-    embed.add_field(
-        name="November League Playoff Champions",
-        value="Arturo Pérez · Renny Ramírez\nGabriel Pérez · Osward Pacheco",
-        inline=False,
-    )
-    embed.set_footer(text=PORTAL_FOOTER)
+    controls = WorkdayPortalView()
+    check_in = discord.ui.ActionRow()
+    check_out = discord.ui.ActionRow()
 
-    await ctx.send(
-        embed=embed,
-        view=WorkdayPortalView(),
+    for button in list(controls.children):
+        row = check_in if button.row == 0 else check_out
+        controls.remove_item(button)
+        row.add_item(button)
+
+    card = discord.ui.Container(
+        discord.ui.TextDisplay(
+            "-# WINGS STORE · PEOPLE OPERATIONS\n"
+            "## Workday Portal\n"
+            "Welcome! I'm Uncle Max. Select the button for your employee ID range."
+        ),
+        discord.ui.Separator(),
+        discord.ui.TextDisplay("**Check In**\nStart your workday and enter your planned activity."),
+        check_in,
+        discord.ui.Separator(),
+        discord.ui.TextDisplay("**Check Out**\nRecord the end of your workday."),
+        check_out,
+        discord.ui.Separator(),
+        discord.ui.TextDisplay(
+            "**November League Playoff Champions**\n"
+            "Arturo Pérez · Renny Ramírez\n"
+            "Gabriel Pérez · Osward Pacheco"
+        ),
+        accent_color=WINGS_NAVY,
     )
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(card)
+    await ctx.send(view=layout)
 
 
 @panel.error
