@@ -323,24 +323,22 @@ def add_registration_times(
     *,
     private_confirmation: bool = True,
 ) -> None:
-    embed.add_field(
-        name="Venezuela time",
-        value=display_registration_time(instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"),
-        inline=False,
+    venezuela_time = display_registration_time(
+        instant, VENEZUELA_TIMEZONE, "Caracas, Venezuela"
     )
-
     if employee_zone:
         region = employee_zone.key.rsplit("/", 1)[-1].replace("_", " ")
         local_time = display_registration_time(instant, employee_zone, region)
     elif private_confirmation:
         stamp = int(instant.timestamp())
-        local_time = f"<t:{stamp}:t> · <t:{stamp}:D>\nRegion and GMT offset unavailable"
+        local_time = f"**<t:{stamp}:t>** · <t:{stamp}:D>\nLocal GMT unavailable"
     else:
         local_time = "Employee time zone unavailable"
 
+    local_label = "Your local time" if private_confirmation else "Employee local time"
     embed.add_field(
-        name="Your local time" if private_confirmation else "Employee local time",
-        value=local_time,
+        name="Registration time",
+        value=f"**{local_label}**\n{local_time}\n\n**Venezuela time**\n{venezuela_time}",
         inline=False,
     )
 
@@ -691,17 +689,17 @@ def build_check_out_embed(
 class WorkActivityModal(discord.ui.Modal):
     def __init__(self, employee_id: str):
         super().__init__(
-            title="Check In",
+            title="Check In · Activity",
             timeout=300,
         )
 
         self.employee_id = employee_id
 
         self.activity = discord.ui.TextInput(
-            label="Work activity",
+            label="Planned activity",
             style=discord.TextStyle.paragraph,
             placeholder=(
-                "Example: Review customer support tickets"
+                "Briefly describe what you plan to work on."
             ),
             required=True,
             max_length=300,
@@ -793,23 +791,36 @@ class WorkActivityModal(discord.ui.Modal):
 # EMPLOYEE ID SELECT MENUS
 # ============================================================
 
+def employee_option_label(employee_id: str) -> str:
+    name = employee_display_name(employee_id)
+    if not name:
+        return employee_id[:100]
+    suffix = f" · {employee_id}"
+    available = 100 - len(suffix)
+    if available <= 0:
+        return employee_id[:100]
+    if len(name) > available:
+        name = name[:available - 1].rstrip() + "…"
+    return name + suffix
+
+
 class CheckInSelect(discord.ui.Select):
     def __init__(self, group_number: int):
         employee_ids = get_employee_id_group(group_number)
 
         options = [
             discord.SelectOption(
-                label=employee_label(employee_id)[:100],
+                label=employee_option_label(employee_id),
                 value=employee_id,
             )
             for employee_id in employee_ids
         ]
 
         if group_number == 1:
-            placeholder = "Employee ID · WS-001–WS-027"
+            placeholder = "Choose an employee · WS-001–WS-027"
             custom_id = "uncle_max:check_in_select:1"
         else:
-            placeholder = "Employee ID · WS-028–WS-050"
+            placeholder = "Choose an employee · WS-028–WS-050"
             custom_id = "uncle_max:check_in_select:2"
 
         super().__init__(
@@ -835,17 +846,17 @@ class CheckOutSelect(discord.ui.Select):
 
         options = [
             discord.SelectOption(
-                label=employee_label(employee_id)[:100],
+                label=employee_option_label(employee_id),
                 value=employee_id,
             )
             for employee_id in employee_ids
         ]
 
         if group_number == 1:
-            placeholder = "Employee ID · WS-001–WS-027"
+            placeholder = "Choose an employee · WS-001–WS-027"
             custom_id = "uncle_max:check_out_select:1"
         else:
-            placeholder = "Employee ID · WS-028–WS-050"
+            placeholder = "Choose an employee · WS-028–WS-050"
             custom_id = "uncle_max:check_out_select:2"
 
         super().__init__(
@@ -973,7 +984,7 @@ class WorkdayPortalView(discord.ui.View):
             return
 
         await send_response(
-            "**Select your Employee ID:**",
+            "**Check In** · Select your name.",
             view=CheckInSelectView(group_number),
             ephemeral=True,
         )
@@ -1001,7 +1012,7 @@ class WorkdayPortalView(discord.ui.View):
             return
 
         await send_response(
-            "**Select your Employee ID:**",
+            "**Check Out** · Select your name.",
             view=CheckOutSelectView(group_number),
             ephemeral=True,
         )
@@ -1153,12 +1164,15 @@ async def on_resumed() -> None:
 async def panel(ctx: commands.Context) -> None:
     embed = discord.Embed(
         title="Wings Store | Workday Portal",
-        description="Choose Check In or Check Out for your employee ID range.",
+        description=(
+            "Welcome to the Wings Store time registration portal. "
+            "Choose Check In or Check Out for your employee ID range."
+        ),
         color=0x142743,
     )
     embed.add_field(
-        name="November League Playoff Winners",
-        value="Arturo Pérez · Renny Ramírez\nGabriel Pérez · Oswaldo Pacheco",
+        name="November League Playoff Champions",
+        value="Arturo Pérez · René Ramírez\nGabriel Pérez · Oswar Pacheco",
         inline=False,
     )
     embed.set_footer(text=PORTAL_FOOTER)
