@@ -1985,6 +1985,96 @@ def is_workday_panel(message: discord.Message, bot_user_id: int) -> bool:
     return False
 
 
+def birthday_month_day(value: str | int | float) -> tuple[int, int] | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            date = datetime(1899, 12, 30) + timedelta(days=value)
+        except (ValueError, OverflowError):
+            return None
+        return date.month, date.day
+
+    text = str(value).strip()
+    for pattern in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            date = datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+        return date.month, date.day
+    for pattern in ("%d/%m/%Y", "%d-%m-%Y"):
+        separator = pattern[2]
+        if text.count(separator) != 1:
+            continue
+        try:
+            date = datetime.strptime(f"{text}{separator}2000", pattern)
+        except ValueError:
+            continue
+        return date.month, date.day
+    return None
+
+
+def employee_birthdays_sync(month: int) -> list[tuple[int, str]] | None:
+    def operation() -> list[tuple[int, str]] | None:
+        assert employees_worksheet is not None
+        headers = employees_worksheet.get("1:3")
+        birthday_column = employee_column(
+            "",
+            headers,
+            ("cumpleanos", "fecha de nacimiento", "fecha nacimiento",
+             "birthday", "date of birth", "dob"),
+            default=-1,
+        )
+        if birthday_column < 0:
+            return None
+
+        letter = gspread.utils.rowcol_to_a1(4, birthday_column + 1)[:-1]
+        ids, birthdays = employees_worksheet.batch_get(
+            ["A4:A", f"{letter}4:{letter}"],
+            value_render_option="UNFORMATTED_VALUE",
+        )
+        results = []
+        seen = set()
+        for id_row, date_row in zip(ids, birthdays):
+            if not id_row or not date_row:
+                continue
+            employee_id = str(id_row[0]).strip()
+            name = employee_display_name(employee_id)
+            birthday = birthday_month_day(date_row[0])
+            if name and birthday and birthday[0] == month and employee_id not in seen:
+                seen.add(employee_id)
+                results.append((birthday[1], name))
+        return sorted(results, key=lambda item: (item[0], item[1].casefold()))
+
+    return run_google_with_retries_sync("load birthdays", operation)
+
+
+async def birthday_card() -> discord.ui.Container:
+    now = datetime.now(TIMEZONE)
+    try:
+        async with SHEETS_LOCK:
+            birthdays = await asyncio.to_thread(employee_birthdays_sync, now.month)
+    except Exception:
+        logger.exception("Could not load the birthday section.")
+        birthdays = None
+
+    month = now.strftime("%B")
+    if birthdays is None:
+        body = "Birthdays are not available yet."
+    elif not birthdays:
+        body = "No birthdays listed this month."
+    else:
+        lines = [
+            f"**{month} {day}** · {discord.utils.escape_markdown(name[:80])}"
+            for day, name in birthdays[:20]
+        ]
+        if len(birthdays) > 20:
+            lines.append(f"… and {len(birthdays) - 20} more.")
+        body = "\n".join(lines)
+    return discord.ui.Container(
+        discord.ui.TextDisplay(f"### Birthdays · {month}\n{body}"),
+        accent_color=WINGS_ORANGE,
+    )
+
+
 @bot.command(name="panel")
 @commands.guild_only()
 @commands.max_concurrency(1, per=commands.BucketType.channel, wait=True)
@@ -2032,7 +2122,7 @@ async def panel(ctx: commands.Context) -> None:
                 "-# NOVEMBER BENEFITS \n"
                 "### Play Us League Champions\n"
                 "**Arturo Pérez** · **Renny Ramírez**\n"
-                "**Gabriel Pérez** · **Osward Pacheco**"
+                "**Gabriel Pérez** · **Osward Pacheco**\n"
                 "-# HAPPY THANKSGIVING DAY \n"
             ),
             accessory=discord.ui.Thumbnail(
@@ -2045,6 +2135,7 @@ async def panel(ctx: commands.Context) -> None:
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(attendance)
     layout.add_item(champions)
+    layout.add_item(await birthday_card())
     mascot = discord.File(BytesIO(b64decode(UNCLE_MAX_ART)), filename=mascot_name)
     logo = discord.File(BytesIO(b64decode(WNG_LOGO_ART)), filename=logo_name)
     current = await ctx.send(view=layout, files=[mascot, logo])
