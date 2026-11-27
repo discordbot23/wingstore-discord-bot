@@ -8,7 +8,7 @@ import logging
 import os
 import random
 import time
-from datetime import datetime
+from datetime import datetime, time as clock_time, timedelta, timezone
 from typing import Callable, TypeVar
 from unicodedata import normalize
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -477,6 +477,92 @@ def record_check_in_sync(
     )
 
 
+def recorded_timestamp(row: list[str], column: int) -> datetime | None:
+    if column >= len(row) or not row[column]:
+        return None
+    try:
+        parsed = datetime.fromisoformat(row[column].split(" [", 1)[0].strip())
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def legacy_clock(value: str) -> clock_time | None:
+    for pattern in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M:%S %p"):
+        try:
+            return datetime.strptime(value.strip(), pattern).time()
+        except ValueError:
+            continue
+    return None
+
+
+def workday_start(row: list[str]) -> datetime | None:
+    timestamp = recorded_timestamp(row, 7)
+    if timestamp is not None:
+        return timestamp
+    clock = legacy_clock(row[2])
+    for pattern in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
+        try:
+            day = datetime.strptime(row[0].strip(), pattern).date()
+        except ValueError:
+            continue
+        if clock is not None:
+            return datetime.combine(day, clock, TIMEZONE).astimezone(timezone.utc)
+        break
+    return None
+
+
+def closed_workday_end(row: list[str], start: datetime) -> datetime | None:
+    timestamp = recorded_timestamp(row, 9)
+    if timestamp is not None:
+        return timestamp
+    clock = legacy_clock(row[3])
+    if clock is None:
+        return None
+    start_local = start.astimezone(TIMEZONE)
+    day = start_local.date()
+    if clock < start_local.time().replace(second=0, microsecond=0):
+        day += timedelta(days=1)
+    return datetime.combine(day, clock, TIMEZONE).astimezone(timezone.utc)
+
+
+def workday_summary(
+    records: list[list[str]],
+    employee_id: str,
+    row: list[str],
+    registered_at: datetime,
+) -> tuple[int | None, int | None]:
+    start = workday_start(row)
+    end = registered_at.astimezone(timezone.utc)
+    if start is None or start > end:
+        return None, None
+
+    day = registered_at.astimezone(TIMEZONE).date()
+    midnight = datetime.combine(day, clock_time.min, TIMEZONE).astimezone(timezone.utc)
+    intervals = [(max(start, midnight), end)]
+    for previous in records[1:]:
+        if len(previous) < 4 or previous[1].strip() != employee_id or not previous[3].strip():
+            continue
+        previous_start = workday_start(previous)
+        if previous_start is None:
+            continue
+        previous_end = closed_workday_end(previous, previous_start)
+        if previous_end is None:
+            continue
+        clipped_start = max(previous_start, midnight)
+        clipped_end = min(previous_end, end)
+        if clipped_start < clipped_end:
+            intervals.append((clipped_start, clipped_end))
+
+    total_seconds = 0.0
+    covered_until = midnight
+    for interval_start, interval_end in sorted(intervals):
+        if interval_end > covered_until:
+            total_seconds += (interval_end - max(interval_start, covered_until)).total_seconds()
+            covered_until = interval_end
+    return int((end - start).total_seconds() // 60), int(total_seconds // 60)
+
+
 def record_check_out_sync(
     employee_id: str,
     discord_user: str,
@@ -489,7 +575,7 @@ def record_check_out_sync(
     def operation() -> tuple[bool, dict]:
         assert records_worksheet is not None
 
-        records = records_worksheet.get("A:G")
+        records = records_worksheet.get("A:K")
         open_workday = find_open_workday(records, employee_id)
 
         if not open_workday:
@@ -503,6 +589,7 @@ def record_check_out_sync(
 
         row_number, row = open_workday
         sheet_time = now.strftime("%H:%M")
+        duration_minutes, today_minutes = workday_summary(records, employee_id, row, now)
 
         updates = [
             {"range": f"D{row_number}", "values": [[sheet_time]]},
@@ -523,6 +610,9 @@ def record_check_out_sync(
             "registered_at": now,
             "check_in_date": format_us_date(row[0]),
             "check_in_time": format_us_time(row[2]),
+            "activity": row[4],
+            "duration_minutes": duration_minutes,
+            "today_minutes": today_minutes,
         }
 
     return run_google_with_retries_sync(
@@ -1342,6 +1432,13 @@ def build_check_in_embed(
     return embed
 
 
+def display_work_minutes(minutes: int | None) -> str:
+    if minutes is None:
+        return "Unavailable"
+    hours, remaining = divmod(minutes, 60)
+    return f"{hours}h {remaining:02d}m" if hours else f"{remaining}m"
+
+
 def build_check_out_embed(
     employee_id: str,
     result: dict,
@@ -1360,6 +1457,17 @@ def build_check_out_embed(
         inline=False,
     )
 
+    activity = discord.utils.escape_markdown(str(result["activity"]).strip())
+    embed.add_field(name="Work activity", value=activity[:1024] or "None recorded", inline=False)
+    day_label = "Venezuela time" if BOT_TIMEZONE == "America/Caracas" else BOT_TIMEZONE
+    embed.add_field(
+        name="Work summary",
+        value=(
+            f"**This workday** · {display_work_minutes(result['duration_minutes'])}\n"
+            f"**Today's total ({day_label})** · {display_work_minutes(result['today_minutes'])}"
+        ),
+        inline=False,
+    )
     embed.set_footer(text=PORTAL_FOOTER)
 
     return embed
@@ -1899,7 +2007,7 @@ async def panel(ctx: commands.Context) -> None:
         discord.ui.Section(
             discord.ui.TextDisplay(
                 "-# NOVEMBER PLAYOFFS\n"
-                "### League Champions\n"
+                "### Play Us League Champions\n"
                 "**Arturo Pérez** · **Renny Ramírez**\n"
                 "**Gabriel Pérez** · **Osward Pacheco**"
             ),
