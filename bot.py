@@ -1,3 +1,5 @@
+
+
 import asyncio
 import json
 import logging
@@ -33,6 +35,18 @@ EMPLOYEES_WORKSHEET_NAME = os.getenv(
     "EMPLEADOS_SHEET_NAME",
     "EMPLEADOS Y CONTRATOS",
 )
+
+EMPLOYEE_NAME_COLUMN = os.getenv("EMPLOYEE_NAME_COLUMN", "B").strip().upper()
+
+if not EMPLOYEE_NAME_COLUMN or any(
+    letter not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for letter in EMPLOYEE_NAME_COLUMN
+):
+    raise RuntimeError("EMPLOYEE_NAME_COLUMN must be a Google Sheets column letter.")
+
+EMPLOYEE_NAME_INDEX = 0
+for letter in EMPLOYEE_NAME_COLUMN:
+    EMPLOYEE_NAME_INDEX = EMPLOYEE_NAME_INDEX * 26 + ord(letter) - ord("A") + 1
+EMPLOYEE_NAME_INDEX -= 1
 
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "America/Caracas")
 MAX_GOOGLE_RETRIES = int(os.getenv("MAX_GOOGLE_RETRIES", "4"))
@@ -88,7 +102,7 @@ spreadsheet: gspread.Spreadsheet | None = None
 records_worksheet: gspread.Worksheet | None = None
 employees_worksheet: gspread.Worksheet | None = None
 
-EMPLOYEE_IDS_CACHE: list[str] = []
+EMPLOYEES_CACHE: dict[str, str] = {}
 
 # Prevents two interactions in this process from editing the worksheet
 # at exactly the same time.
@@ -193,24 +207,31 @@ def run_google_with_retries_sync(
     raise last_error
 
 
-def load_employee_ids_sync() -> list[str]:
-    def operation() -> list[str]:
+def load_employees_sync() -> dict[str, str]:
+    def operation() -> dict[str, str]:
         assert employees_worksheet is not None
 
-        data = employees_worksheet.get("A4:A")
+        rows = employees_worksheet.get(f"A4:{EMPLOYEE_NAME_COLUMN}")
+        employees = {}
+        for row in rows:
+            if not row:
+                continue
+            employee_id = str(row[0]).strip()
+            if not employee_id:
+                continue
+            name = ""
+            if EMPLOYEE_NAME_INDEX != 0 and len(row) > EMPLOYEE_NAME_INDEX:
+                name = " ".join(str(row[EMPLOYEE_NAME_INDEX]).split())
+            if employee_id not in employees or not employees[employee_id]:
+                employees[employee_id] = name
+        return employees
 
-        return list(
-            dict.fromkeys(
-                str(row[0]).strip()
-                for row in data
-                if row and str(row[0]).strip()
-            )
-        )
+    return run_google_with_retries_sync("load employees", operation)
 
-    return run_google_with_retries_sync(
-        "load employee IDs",
-        operation,
-    )
+
+def employee_label(employee_id: str) -> str:
+    name = EMPLOYEES_CACHE.get(employee_id)
+    return f"{employee_id} · {name}" if name else employee_id
 
 
 def find_open_workday(
@@ -247,6 +268,7 @@ def record_check_in_sync(
     employee_id: str,
     activity: str,
     discord_user: str,
+    employee_name: str = "",
 ) -> tuple[str, dict | None]:
     """
     Records a new check-in.
@@ -288,6 +310,7 @@ def record_check_in_sync(
                 "",
                 activity.strip(),
                 discord_user,
+                f"'{employee_name}" if employee_name else "",  # Column G
             ],
             value_input_option="USER_ENTERED",
         )
@@ -346,22 +369,22 @@ def record_check_out_sync(
 
 
 async def refresh_employee_ids_cache() -> bool:
-    global EMPLOYEE_IDS_CACHE
+    global EMPLOYEES_CACHE
 
     try:
-        ids = await asyncio.to_thread(load_employee_ids_sync)
+        employees = await asyncio.to_thread(load_employees_sync)
 
-        if not ids:
+        if not employees:
             logger.warning(
                 "Google Sheets responded, but no employee IDs were found "
                 "in A4:A."
             )
             return False
 
-        EMPLOYEE_IDS_CACHE = ids
+        EMPLOYEES_CACHE = employees
         logger.info(
             "Employee ID cache updated: %s IDs loaded.",
-            len(EMPLOYEE_IDS_CACHE),
+            len(EMPLOYEES_CACHE),
         )
         return True
 
@@ -372,10 +395,10 @@ async def refresh_employee_ids_cache() -> bool:
 
 def get_employee_id_group(group_number: int) -> list[str]:
     if group_number == 1:
-        return EMPLOYEE_IDS_CACHE[:25]
+        return list(EMPLOYEES_CACHE)[:25]
 
     if group_number == 2:
-        return EMPLOYEE_IDS_CACHE[25:50]
+        return list(EMPLOYEES_CACHE)[25:50]
 
     return []
 
@@ -432,8 +455,8 @@ async def notify_human_resources(
     )
 
     embed.add_field(
-        name="Employee ID",
-        value=incident["employee_id"],
+        name="Employee",
+        value=discord.utils.escape_markdown(employee_label(incident["employee_id"]))[:1024],
         inline=True,
     )
     embed.add_field(
@@ -495,7 +518,7 @@ def build_check_in_embed(
     embed = discord.Embed(
         title="Check In Confirmed",
         description=(
-            f"Your check-in was recorded for **{employee_id}**."
+            f"Your check-in was recorded for **{discord.utils.escape_markdown(employee_label(employee_id))[:200]}**."
         ),
         color=NAVY,
     )
@@ -537,7 +560,7 @@ def build_check_out_embed(
     embed = discord.Embed(
         title="Check Out Confirmed",
         description=(
-            f"Your check-out was recorded for **{employee_id}**."
+            f"Your check-out was recorded for **{discord.utils.escape_markdown(employee_label(employee_id))[:200]}**."
         ),
         color=ORANGE,
     )
@@ -607,6 +630,7 @@ class WorkActivityModal(discord.ui.Modal):
                     self.employee_id,
                     str(self.activity.value),
                     str(interaction.user),
+                    EMPLOYEES_CACHE.get(self.employee_id, ""),
                 )
 
             await interaction.followup.send(
@@ -676,7 +700,7 @@ class CheckInSelect(discord.ui.Select):
 
         options = [
             discord.SelectOption(
-                label=employee_id,
+                label=employee_label(employee_id)[:100],
                 value=employee_id,
             )
             for employee_id in employee_ids
@@ -712,7 +736,7 @@ class CheckOutSelect(discord.ui.Select):
 
         options = [
             discord.SelectOption(
-                label=employee_id,
+                label=employee_label(employee_id)[:100],
                 value=employee_id,
             )
             for employee_id in employee_ids
@@ -758,9 +782,10 @@ class CheckOutSelect(discord.ui.Select):
                     ephemeral=True,
                 )
             else:
+                display_name = discord.utils.escape_markdown(employee_label(employee_id))[:200]
+                message = result["message"].replace(f"**{employee_id}**", f"**{display_name}**")
                 await interaction.followup.send(
-                    "**Check Out Unavailable**\n\n"
-                    f"{result['message']}",
+                    f"**Check Out Unavailable**\n\n{message}",
                     ephemeral=True,
                 )
 
@@ -803,7 +828,7 @@ class WorkdayPortalView(discord.ui.View):
         self,
         interaction: discord.Interaction,
     ) -> bool:
-        if EMPLOYEE_IDS_CACHE:
+        if EMPLOYEES_CACHE:
             return True
 
         await interaction.response.defer(
@@ -828,7 +853,7 @@ class WorkdayPortalView(discord.ui.View):
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not EMPLOYEE_IDS_CACHE:
+        if not EMPLOYEES_CACHE:
             if not await self.ensure_employee_ids(interaction):
                 return
 
@@ -863,7 +888,7 @@ class WorkdayPortalView(discord.ui.View):
         interaction: discord.Interaction,
         group_number: int,
     ) -> None:
-        if not EMPLOYEE_IDS_CACHE:
+        if not EMPLOYEES_CACHE:
             if not await self.ensure_employee_ids(interaction):
                 return
 
